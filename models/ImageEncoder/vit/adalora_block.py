@@ -61,7 +61,7 @@ class AdaloraBlock(nn.Module):
 
         self.window_size = window_size
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         shortcut = x
         x = self.norm1(x)
         # Window partition
@@ -70,14 +70,16 @@ class AdaloraBlock(nn.Module):
             x, pad_hw = window_partition(x, self.window_size)
 
         x = self.attn(x)
+        attn_map = x.detach().cpu().clone()
         # Reverse window partition
         if self.window_size > 0:
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
+            attn_map = window_unpartition(attn_map, self.window_size, pad_hw, (H, W))
 
         x = shortcut + x
         x = x + self.mlp(self.norm2(x))
 
-        return x
+        return x, attn_map.mean(dim=-1).unsqueeze(dim=1)
 
 class MLPBlock(nn.Module):
     def __init__(

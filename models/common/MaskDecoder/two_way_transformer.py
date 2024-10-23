@@ -1,5 +1,5 @@
 import math
-from typing import Tuple, Type
+from typing import Tuple, Type, List
 
 import torch
 from torch import Tensor, nn
@@ -61,7 +61,7 @@ class TwoWayTransformer(nn.Module):
         image_embedding: Tensor,
         image_pe: Tensor,
         point_embedding: Tensor,
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> Tuple[Tensor, Tensor, List]:
         """
         Args:
           image_embedding (torch.Tensor): image to attend to. Should be shape
@@ -86,13 +86,15 @@ class TwoWayTransformer(nn.Module):
         keys = image_embedding
 
         # Apply transformer blocks and final layernorm
+        attns = []
         for idx, layer in enumerate(self.layers):
-            queries, keys = layer(
+            queries, keys, attn = layer(
                 queries=queries,
                 keys=keys,
                 query_pe=point_embedding,
                 key_pe=image_pe,
             )
+            attns.append(attn)
 
         # Apply the final attention layer from the points to the image
         q = queries + point_embedding
@@ -100,7 +102,7 @@ class TwoWayTransformer(nn.Module):
         attn_out = self.final_attn_token_to_image(q=q, k=k, v=keys)
         queries = queries + attn_out
         queries = self.norm_final_attn(queries)
-        return queries, keys
+        return queries, keys, attns
 
 
 class TwoWayAttentionBlock(nn.Module):
@@ -159,7 +161,7 @@ class TwoWayAttentionBlock(nn.Module):
 
     def forward(
         self, queries: Tensor, keys: Tensor, query_pe: Tensor, key_pe: Tensor
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> Tuple[Tensor, Tensor, List]:
         # Self attention block
         if not self.skip_first_layer_pe:
             queries = queries + query_pe
@@ -170,8 +172,8 @@ class TwoWayAttentionBlock(nn.Module):
         # Cross attention block, tokens attending to image embedding
         q = queries + query_pe
         k = keys + key_pe
-        attn_out = self.cross_attn_token_to_image(q=q, k=k, v=keys)
-        queries = queries + attn_out
+        attn_out_token2embed = self.cross_attn_token_to_image(q=q, k=k, v=keys)
+        queries = queries + attn_out_token2embed
         queries = self.norm2(queries)
 
         # MLP block
@@ -182,11 +184,11 @@ class TwoWayAttentionBlock(nn.Module):
         # Cross attention block, image embedding attending to tokens
         q = queries + query_pe
         k = keys + key_pe
-        attn_out = self.cross_attn_image_to_token(q=k, k=q, v=queries)
-        keys = keys + attn_out
+        attn_out_embed2token = self.cross_attn_image_to_token(q=k, k=q, v=queries)
+        keys = keys + attn_out_embed2token
         keys = self.norm4(keys)
 
-        return queries, keys
+        return queries, keys, [attn_out_token2embed, attn_out_embed2token]
 
 
 class AttentionForTwoWayAttentionBlock(nn.Module):

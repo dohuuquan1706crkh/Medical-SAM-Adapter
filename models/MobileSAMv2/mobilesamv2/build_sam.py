@@ -85,7 +85,7 @@ def _build_sam(
             mask_in_chans=16,
         ),
         mask_decoder=MaskDecoder(
-            num_multimask_outputs=3,
+            num_multimask_outputs=args.multimask_output,
             transformer=TwoWayTransformer(
                 depth=2,
                 embedding_dim=prompt_embed_dim,
@@ -157,7 +157,7 @@ def build_sam_vit_t(
             mask_in_chans=16,
         ),
         mask_decoder=MaskDecoder(
-            num_multimask_outputs=3,
+            num_multimask_outputs=args.multimask_output,
             transformer=TwoWayTransformer(
                 depth=2,
                 embedding_dim=prompt_embed_dim,
@@ -227,7 +227,7 @@ def build_efficientvit_l2(args,checkpoint=None):
             mask_in_chans=16,
         ),
         mask_decoder=MaskDecoder(
-            num_multimask_outputs=3,
+            num_multimask_outputs=args.multimask_output,
             transformer=TwoWayTransformer(
                 depth=2,
                 embedding_dim=prompt_embed_dim,
@@ -288,7 +288,7 @@ def build_PromptGuidedDecoder(checkpoint=None):
         mask_in_chans=16,
     )
     mask_decoder=MaskDecoder(
-        num_multimask_outputs=3,
+        num_multimask_outputs=args.multimask_output,
         transformer=TwoWayTransformer(
             depth=2,
             embedding_dim=prompt_embed_dim,

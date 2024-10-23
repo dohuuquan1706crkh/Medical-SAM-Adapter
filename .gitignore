@@ -2,3 +2,7 @@
 /logs
 /runs
 pipline.sh
+figs/*
+data/*
+*.pyc
+*.png

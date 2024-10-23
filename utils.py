@@ -39,7 +39,7 @@ from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric
 from monai.networks.nets import SwinUNETR
 from monai.transforms import (AsDiscrete, Compose, CropForegroundd,
-                              EnsureTyped, LoadImaged, Orientationd,
+                              EnsureTyped, LoadImaged, EnsureChannelFirstd, Orientationd,
                               RandCropByPosNegLabeld, RandFlipd, RandRotate90d,
                               RandShiftIntensityd, ScaleIntensityRanged,
                               Spacingd)
@@ -48,7 +48,7 @@ from torch import autograd
 from torch.autograd import Function, Variable
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.utils.data import DataLoader
-# from lucent.optvis.param.spatial import pixel_image, fft_image, init_image
+# from lucent.opt.param.spatial import pixel_image, fft_image, init_image
 # from lucent.optvis.param.color import to_valid_rgb
 # from lucent.optvis import objectives, transform, param
 # from lucent.misc.io import show
@@ -124,7 +124,8 @@ def get_decath_loader(args):
 
     train_transforms = Compose(
         [   
-            LoadImaged(keys=["image", "label"], ensure_channel_first=True),
+            LoadImaged(keys=["image", "label"]),
+            EnsureChannelFirstd(keys=["image", "label"]),
             ScaleIntensityRanged(
                 keys=["image"],
                 a_min=-175,
@@ -180,7 +181,8 @@ def get_decath_loader(args):
     )
     val_transforms = Compose(
         [
-            LoadImaged(keys=["image", "label"], ensure_channel_first=True),
+            LoadImaged(keys=["image", "label"]),
+            EnsureChannelFirstd(keys=["image", "label"]),
             ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True
             ),
@@ -951,24 +953,39 @@ def hook_model(model, image_f):
 
     return hook
 
-def vis_image(imgs, pred_masks, gt_masks, save_path, reverse = False, points = None, boxes = None):
+def vis_image(imgs, pred_masks, gt_masks, entropy = None, mae=None, save_path = None, reverse = False, points = None, boxes = None):
     
     b,c,h,w = pred_masks.size()
+    #print(c)
     dev = pred_masks.get_device()
     row_num = min(b, 4)
 
     if torch.max(pred_masks) > 1 or torch.min(pred_masks) < 0:
         pred_masks = torch.sigmoid(pred_masks)
-
+    # error_map = torch.abs(gt_masks - pred_masks)
+    
+    
     if reverse == True:
         pred_masks = 1 - pred_masks
         gt_masks = 1 - gt_masks
     if c == 2: # for REFUGE multi mask output
         pred_disc, pred_cup = pred_masks[:,0,:,:].unsqueeze(1).expand(b,3,h,w), pred_masks[:,1,:,:].unsqueeze(1).expand(b,3,h,w)
+        #print(pred_disc.shape, pred_cup.shape)
         gt_disc, gt_cup = gt_masks[:,0,:,:].unsqueeze(1).expand(b,3,h,w), gt_masks[:,1,:,:].unsqueeze(1).expand(b,3,h,w)
-        tup = (imgs[:row_num,:,:,:],pred_disc[:row_num,:,:,:], pred_cup[:row_num,:,:,:], gt_disc[:row_num,:,:,:], gt_cup[:row_num,:,:,:])
+        #print(gt_disc.shape, gt_cup.shape)
+        error_disc, error_cup = error_map[:,0,:,:].unsqueeze(1).expand(b,3,h,w), error_map[:,1,:,:].unsqueeze(1).expand(b,3,h,w)
+        tup = (imgs[:row_num,:,:,:], pred_disc[:row_num,:,:,:], pred_cup[:row_num,:,:,:], gt_disc[:row_num,:,:,:], gt_cup[:row_num,:,:,:], error_disc[:row_num,:,:,:], error_cup[:row_num,:,:,:], )
         compose = torch.cat(tup, 0)
         vutils.save_image(compose, fp = save_path, nrow = row_num, padding = 10)
+        # breakpoint()
+        if entropy is not None:
+          #print(entropy.shape)
+          entropy_disc, entropy_cup = entropy[:, 0, :, :].unsqueeze(1).expand(b,3,h,w), entropy[:, 1, :, :].unsqueeze(1).expand(b,3,h,w)
+          vutils.save_image(torch.cat((entropy_disc, entropy_cup), 0), fp = save_path[:-4] + "_entropy.jpg", nrow = row_num, padding = 10)
+        if mae is not None:
+          #print(entropy.shape)
+          mae_disc, mae_cup = mae[:, 0, :, :].unsqueeze(1).expand(b,3,h,w), mae[:, 1, :, :].unsqueeze(1).expand(b,3,h,w)
+          vutils.save_image(torch.cat((mae_disc, mae_cup), 0), fp = save_path[:-4] + "_mae.jpg", nrow = row_num, padding = 10)
     elif c > 2: # for multi-class segmentation > 2 classes
         preds = []
         gts = []
@@ -1007,10 +1024,20 @@ def vis_image(imgs, pred_masks, gt_masks, save_path, reverse = False, points = N
                 img01 = img255 / 255
                 # torchvision.utils.save_image(img01, save_path + "_boxes.png")
                 imgs[i, :] = img01
-        tup = (imgs[:row_num,:,:,:],pred_masks[:row_num,:,:,:], gt_masks[:row_num,:,:,:])
+        error_map = torch.abs(gt_masks - pred_masks)
+
+        tup = (imgs[:row_num,:,:,:],pred_masks[:row_num,:,:,:], gt_masks[:row_num,:,:,:], error_map[:row_num,:,:,:])
+        # breakpoint()
         # compose = torch.cat((imgs[:row_num,:,:,:],pred_disc[:row_num,:,:,:], pred_cup[:row_num,:,:,:], gt_disc[:row_num,:,:,:], gt_cup[:row_num,:,:,:]),0)
         compose = torch.cat(tup,0)
         vutils.save_image(compose, fp = save_path, nrow = row_num, padding = 10)
+        if entropy is not None:
+          entropy = entropy.expand(b,3,h,w)
+          vutils.save_image(entropy, fp = save_path[:-4] + "_entropy.jpg", nrow = row_num, padding = 10)
+        if mae is not None:
+          #print(entropy.shape)
+          mae = mae.expand(b,3,h,w)
+          vutils.save_image(mae, fp = save_path[:-4] + "_mae.jpg", nrow = row_num, padding = 10)
 
     return
 
@@ -1221,3 +1248,24 @@ def random_box(multi_rater):
 
     return x_min, x_max, y_min, y_max
 
+
+def compute_gradient_map(image_tensor):
+    # Define Sobel filters for x and y gradients
+    sobel_x = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
+    sobel_y = torch.tensor([[-1., -2., -1.], [0., 0., 0.], [1., 2., 1.]]).unsqueeze(0).unsqueeze(0)
+    
+    # Ensure the image tensor has a channel dimension (1, H, W)
+    if image_tensor.dim() == 2:
+        image_tensor = image_tensor.unsqueeze(0).unsqueeze(0)
+    # breakpoint()
+    # Apply the Sobel filters using 2D convolution
+    grad_x = F.conv2d(image_tensor, sobel_x, padding=1)
+    grad_y = F.conv2d(image_tensor, sobel_y, padding=1)
+    
+    # Compute the gradient magnitude
+    gradient_magnitude = torch.sqrt(grad_x ** 2 + grad_y ** 2)
+    
+    # Normalize the gradient magnitude to [0, 1] for visualization purposes
+    gradient_magnitude = (gradient_magnitude - gradient_magnitude.min()) / (gradient_magnitude.max() - gradient_magnitude.min())
+    
+    return gradient_magnitude

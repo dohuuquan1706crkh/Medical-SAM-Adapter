@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from typing import Optional, Tuple, Type
+from typing import Optional, Tuple, Type, List
 
 import torch
 import torch.nn as nn
@@ -76,7 +76,7 @@ class ImageEncoderViT(nn.Module):
             )
 
         self.blocks = nn.ModuleList()
-        if args.mod == 'sam_adpt':
+        if args.mod == 'sam_adapt':
             block_class = AdapterBlock 
         elif args.mod == 'sam_lora':
             block_class = LoraBlock 
@@ -84,6 +84,7 @@ class ImageEncoderViT(nn.Module):
             block_class = Block 
 
         for i in range(depth):
+        
             block = block_class(
                 args=self.args,
                 dim=embed_dim,
@@ -117,7 +118,7 @@ class ImageEncoderViT(nn.Module):
             LayerNorm2d(out_chans),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, List]:
 
         x = self.patch_embed(x)
         if self.pos_embed is not None:
@@ -129,13 +130,15 @@ class ImageEncoderViT(nn.Module):
                 align_corners=False,
             ).permute(0, 2, 3, 1)
             x = x + new_abs_pos
-
+        attn_maps = []
         for blk in self.blocks:
-            x = blk(x)
+            x, attn_map = blk(x)
+            # print('encoder',attn_map.shape)
+            attn_maps.append(attn_map)
             
         x = self.neck(x.permute(0, 3, 1, 2))
 
-        return x
+        return x, attn_maps
 
 class PatchEmbed(nn.Module):
     """

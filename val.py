@@ -36,8 +36,8 @@ import function
 
 def main():
     args = cfg.parse_args()
-    if args.dataset == 'refuge' or args.dataset == 'refuge2':
-        args.data_path = '../dataset'
+    #if args.dataset == 'refuge' or args.dataset == 'refuge2':
+    #    args.data_path = '../dataset'
 
     GPUdevice = torch.device('cuda', args.gpu_device)
 
@@ -87,15 +87,15 @@ def main():
     best_acc = 0.0
     best_tol = 1e4
 
-    if args.mod == 'sam_adpt':
-        net.eval()
+    #if args.mod == 'sam_adapt':
+    net.eval()
 
-        if args.dataset != 'REFUGE':
-            tol, (eiou, edice) = function.validation_sam(args, nice_test_loader, start_epoch, net)
-            logger.info(f'Total score: {tol}, IOU: {eiou}, DICE: {edice} || @ epoch {start_epoch}.')
-        else:
-            tol, (eiou_cup, eiou_disc, edice_cup, edice_disc) = function.validation_sam(args, nice_test_loader, start_epoch, net)
-            logger.info(f'Total score: {tol}, IOU_CUP: {eiou_cup}, IOU_DISC: {eiou_disc}, DICE_CUP: {edice_cup}, DICE_DISC: {edice_disc} || @ epoch {start_epoch}.')
+    if args.dataset != 'REFUGE':
+        tol, (eiou, edice) = function.validation_sam(args, nice_test_loader, start_epoch, net)
+        logger.info(f'Total score: {tol}, IOU: {eiou}, DICE: {edice} || @ epoch {start_epoch}.')
+    else:
+        tol, (eiou_cup, eiou_disc, edice_cup, edice_disc) = function.validation_sam(args, nice_test_loader, start_epoch, net)
+        logger.info(f'Total score: {tol}, IOU_CUP: {eiou_cup}, IOU_DISC: {eiou_disc}, DICE_CUP: {edice_cup}, DICE_DISC: {edice_disc} || @ epoch {start_epoch}.')
 
 
 if __name__ == '__main__':

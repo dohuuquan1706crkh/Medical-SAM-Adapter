@@ -68,8 +68,9 @@ class AdapterBlock(nn.Module):
 
         self.window_size = window_size
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         shortcut = x
+        
         # Window partition
         if self.window_size > 0:
             H, W = x.shape[1], x.shape[2]
@@ -93,7 +94,8 @@ class AdapterBlock(nn.Module):
         x = self.norm1(x)
         x = self.attn(x)
         x = self.Space_Adapter(x)
-
+        attn_map = x.detach().cpu().clone()
+        
         if self.args.thd:
             xd = rearrange(xd, 'b (hh ww) c -> b  hh ww c', hh= hh )
             x = x + xd
@@ -101,11 +103,12 @@ class AdapterBlock(nn.Module):
         # Reverse window partition
         if self.window_size > 0:
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
+            attn_map = window_unpartition(attn_map, self.window_size, pad_hw, (H, W))
 
         x = shortcut + x
         xn = self.norm2(x)
         x = x + self.mlp(xn) + self.scale * self.MLP_Adapter(xn)
-        return x
+        return x, attn_map.mean(dim=-1).unsqueeze(dim=1)
 
 
 class Attention(nn.Module):
