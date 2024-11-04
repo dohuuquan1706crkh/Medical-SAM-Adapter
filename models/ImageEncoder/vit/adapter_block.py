@@ -70,13 +70,14 @@ class AdapterBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         shortcut = x
-        
         # Window partition
+        print(x.shape)
         if self.window_size > 0:
+            print("window")
             H, W = x.shape[1], x.shape[2]
             x, pad_hw = window_partition(x, self.window_size)
-
-         ## 3d branch
+            print(x.shape)
+        ## 3d branch
         if self.args.thd: 
             hh, ww = x.shape[1], x.shape[2]
             if self.args.chunk:
@@ -92,9 +93,12 @@ class AdapterBlock(nn.Module):
             xd = rearrange(xd, '(b n) dh dw c ->(b dh dw) n c', n= hh * ww )
 
         x = self.norm1(x)
-        x = self.attn(x)
+
+        x, attn = self.attn(x)
+
         x = self.Space_Adapter(x)
-        attn_map = x.detach().cpu().clone()
+
+        # attn_map = x.detach().cpu().clone()
         
         if self.args.thd:
             xd = rearrange(xd, 'b (hh ww) c -> b  hh ww c', hh= hh )
@@ -103,13 +107,15 @@ class AdapterBlock(nn.Module):
         # Reverse window partition
         if self.window_size > 0:
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
-            attn_map = window_unpartition(attn_map, self.window_size, pad_hw, (H, W))
+            # attn_map = window_unpartition(attn_map, self.window_size, pad_hw, (H, W))
 
         x = shortcut + x
         xn = self.norm2(x)
         x = x + self.mlp(xn) + self.scale * self.MLP_Adapter(xn)
-        return x, attn_map.mean(dim=-1).unsqueeze(dim=1)
-
+        # breakpoint()
+        # return x, attn_map.mean(dim=-1).unsqueeze(dim=1)
+        # print(x.shape)
+        return x, attn
 
 class Attention(nn.Module):
     """Multi-head Attention block with relative position embeddings."""
@@ -152,22 +158,22 @@ class Attention(nn.Module):
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, H, W, _ = x.shape
+        B, H, W, _ = x.shape    #(50, 14, 14)
         # qkv with shape (3, B, nHead, H * W, C)
         qkv = self.qkv(x).reshape(B, H * W, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         # q, k, v with shape (B * nHead, H * W, C)
         q, k, v = qkv.reshape(3, B * self.num_heads, H * W, -1).unbind(0)
-
-        attn = (q * self.scale) @ k.transpose(-2, -1)
-
+        
+        attn = (q * self.scale) @ k.transpose(-2, -1) 
         if self.use_rel_pos:
             attn = add_decomposed_rel_pos(attn, q, self.rel_h, self.rel_w, (H, W), (H, W))
 
-        attn = attn.softmax(dim=-1)
+        attn = attn.softmax(dim=-1) #(600, 196, 196)
+        
         x = (attn @ v).view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
         x = self.proj(x)
-
-        return x
+        # breakpoint()
+        return x, attn
 
 
 def window_partition(x: torch.Tensor, window_size: int) -> Tuple[torch.Tensor, Tuple[int, int]]:

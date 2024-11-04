@@ -1269,3 +1269,6 @@ def compute_gradient_map(image_tensor):
     gradient_magnitude = (gradient_magnitude - gradient_magnitude.min()) / (gradient_magnitude.max() - gradient_magnitude.min())
     
     return gradient_magnitude
+
+
+

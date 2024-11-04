@@ -82,7 +82,7 @@ class ImageEncoderViT(nn.Module):
             block_class = LoraBlock 
         else:
             block_class = Block 
-
+        # print(global_attn_indexes)
         for i in range(depth):
         
             block = block_class(
@@ -119,8 +119,9 @@ class ImageEncoderViT(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, List]:
-
+        # print(x.shape)
         x = self.patch_embed(x)
+        # print(x.shape)
         if self.pos_embed is not None:
             # resize position embedding to match the input
             new_abs_pos = F.interpolate(
@@ -132,10 +133,12 @@ class ImageEncoderViT(nn.Module):
             x = x + new_abs_pos
         attn_maps = []
         for blk in self.blocks:
+            print('x_encoder',x.shape)
             x, attn_map = blk(x)
             # print('encoder',attn_map.shape)
             attn_maps.append(attn_map)
-            
+        # print("end")
+        # breakpoint()
         x = self.neck(x.permute(0, 3, 1, 2))
 
         return x, attn_maps

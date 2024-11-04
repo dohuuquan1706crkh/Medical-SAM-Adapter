@@ -265,7 +265,7 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
 
     with tqdm(total=n_val, desc='Validation round', unit='batch', leave=False) as pbar:
         for ind, pack in enumerate(val_loader):
-            breakpoint()
+            # breakpoint()
             imgsw = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             masksw = pack['label'].to(dtype = torch.float32, device = GPUdevice)
             # for k,v in pack['image_meta_dict'].items():
@@ -374,7 +374,7 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
                     #exitbreakpoint()
                     pred = F.interpolate(pred,size=(args.out_size,args.out_size))
                     tot += lossfunc(pred, masks).item()
-                    
+                    # breakpoint()
                     
                     #print("decoder attn map")
                     #print(f"final: {decoder_attns[-1].shape}")
@@ -396,39 +396,34 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
                         for na in name[:2]:
                             img_name = na.split('/')[-1].split('.')[0]
                             namecat = namecat + img_name + '+'
-                        #print("encoder attn map")
-                        compose = [F.interpolate(imgs,size=(64,64)).detach().cpu().expand(imgs.shape[0], 3, 64, 64), F.interpolate(masks,size=(64,64)).detach().cpu().expand(masks.shape[0], 3, 64, 64)]
-                        for i, attn in enumerate(encoder_attns):
-                          print(attn.shape)  
-                          #attn = F.interpolate(attn, size=(128, 128), mode=)
-                          #attn = (attn - attn.amin(dim=(-1, -2), keepdim=True)) / (attn.amax(dim=(-1, -2), keepdim=True) - attn.amin(dim=(-1, -2), keepdim=True)
-                          attn = (attn - attn.amin(dim=(-1, -2), keepdim=True)) / (attn.amax(dim=(-1, -2), keepdim=True) - attn.amin(dim=(-1, -2), keepdim=True))
-                          #breakpoint()
-                          grad_attn = compute_gradient_map(attn)
-                          #attn = attn.expand(attn.shape[0],3,attn.shape[1],attn.shape[2])
-                          compose += [attn.expand(attn.shape[0],3,attn.shape[2],attn.shape[3])]
-                          compose += [grad_attn.expand(attn.shape[0],3,attn.shape[2],attn.shape[3])]
-                          # print(f"layer {i}: {attn.shape}")
-                        compose = torch.cat(compose, 0)
-                        vutils.save_image(compose, fp = os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + "_encoder_attn.jpg"), nrow = pred.shape[0], padding = 10)
-                        # print("decoder map")
-                        compose = [F.interpolate(imgs,size=(64,64)).detach().cpu().expand(imgs.shape[0], 3, 64, 64), F.interpolate(masks,size=(64,64)).detach().cpu().expand(masks.shape[0], 3, 64, 64)]
-                        for attn in decoder_attns:
-                            # breakpoint()
-                            attn = attn[1].mean(dim=-1).view(attn[1].shape[0], 64, 64).detach().cpu().unsqueeze(1)
-                            attn = (attn - attn.amin(dim=(-1, -2), keepdim=True)) / (attn.amax(dim=(-1, -2), keepdim=True) - attn.amin(dim=(-1, -2), keepdim=True))
-                            # breakpoint()
-                            grad_attn = compute_gradient_map(attn)
-                            compose += [attn.expand(attn.shape[0], 3, 64, 64)]
-                            compose += [grad_attn.expand(attn.shape[0],3,attn.shape[2],attn.shape[3])]
-                        compose = torch.cat(compose, 0)
-                        vutils.save_image(compose, fp = os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + "_decoder_attn.jpg"), nrow = pred.shape[0], padding = 10)
-                        # breakpoint()
+                        # #print("encoder attn map")
+                        # compose = [F.interpolate(imgs,size=(64,64)).detach().cpu().expand(imgs.shape[0], 3, 64, 64), F.interpolate(masks,size=(64,64)).detach().cpu().expand(masks.shape[0], 3, 64, 64)]
+                        # for i, attn in enumerate(encoder_attns):
+                        #   print(attn.shape)  
+                        #   #attn = F.interpolate(attn, size=(128, 128), mode=)
+                        #   #attn = (attn - attn.amin(dim=(-1, -2), keepdim=True)) / (attn.amax(dim=(-1, -2), keepdim=True) - attn.amin(dim=(-1, -2), keepdim=True)
+                        #   attn = (attn - attn.amin(dim=(-1, -2), keepdim=True)) / (attn.amax(dim=(-1, -2), keepdim=True) - attn.amin(dim=(-1, -2), keepdim=True))
+                        #   grad_attn = compute_gradient_map(attn)
+                        #   #attn = attn.expand(attn.shape[0],3,attn.shape[1],attn.shape[2])
+                        #   compose += [attn.expand(attn.shape[0],3,attn.shape[2],attn.shape[3])]
+                        #   compose += [grad_attn.expand(attn.shape[0],3,attn.shape[2],attn.shape[3])]
+                        #   # print(f"layer {i}: {attn.shape}")
+                        # compose = torch.cat(compose, 0)
+                        # vutils.save_image(compose, fp = os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + "_encoder_attn.jpg"), nrow = pred.shape[0], padding = 10)
+                        # # print("decoder map")
+                        # compose = [F.interpolate(imgs,size=(64,64)).detach().cpu().expand(imgs.shape[0], 3, 64, 64), F.interpolate(masks,size=(64,64)).detach().cpu().expand(masks.shape[0], 3, 64, 64)]
+                        # for attn in decoder_attns:
+                        #     attn = attn[1].mean(dim=-1).view(attn[1].shape[0], 64, 64).detach().cpu().unsqueeze(1)
+                        #     attn = (attn - attn.amin(dim=(-1, -2), keepdim=True)) / (attn.amax(dim=(-1, -2), keepdim=True) - attn.amin(dim=(-1, -2), keepdim=True))
+                        #     grad_attn = compute_gradient_map(attn)
+                        #     compose += [attn.expand(attn.shape[0], 3, 64, 64)]
+                        #     compose += [grad_attn.expand(attn.shape[0],3,attn.shape[2],attn.shape[3])]
+                        # compose = torch.cat(compose, 0)
+                        # vutils.save_image(compose, fp = os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + "_decoder_attn.jpg"), nrow = pred.shape[0], padding = 10)
                         # pred_sigmoid = torch.sigmoid(pred)
                         # error_map = torch.abs(masks - pred_sigmoid)
-                        # breakpoint()
                         vis_image(imgs,pred, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
-                    
+                    # breakpoint()
 
                     temp = eval_seg(pred, masks, threshold)
                     mix_res = tuple([sum(a) for a in zip(mix_res, temp)])
@@ -497,3 +492,4 @@ def get_rescaled_pts(batched_points: torch.Tensor, input_h: int, input_w: int):
             ],
             dim=-1,
         )
+        

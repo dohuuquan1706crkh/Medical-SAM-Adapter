@@ -91,8 +91,6 @@ def edl_digamma_loss(output, target, epoch_num, num_classes, annealing_step: int
     loss = torch.mean(
         edl_loss(torch.digamma, target, alpha, epoch_num, num_classes, annealing_step)
     )
-    # print("aaaaaaaaaaaaaaaaaaa")
-    # print(loss)
     return loss
 
 
