@@ -244,9 +244,13 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
 
     return loss
 
-def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
-     # eval mode
-    net.eval()
+def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='normal'):
+    if val_mode == 'mc_dropout':
+        net.eval()  # Ensure the model is in eval mode
+        for module in net.modules():
+            if isinstance(module, torch.nn.Dropout):
+                print(f"Enabling dropout for {module}")
+                module.train()  # Enable dropout
 
     mask_type = torch.float32
     n_val = len(val_loader)  # the number of batch
@@ -263,6 +267,9 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
     else:
         lossfunc = criterion_G
 
+    pred_ls = []
+    mask_ls = []
+    pred_var_ls = []
     with tqdm(total=n_val, desc='Validation round', unit='batch', leave=False) as pbar:
         for ind, pack in enumerate(val_loader):
             # breakpoint()
@@ -327,27 +334,73 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
                 
                 '''test'''
                 with torch.no_grad():
-                    if args.distributed != 'none':
-                        imge, encoder_attns = net.module.image_encoder(imgs)
-                    else: 
-                        imge, encoder_attns = net.image_encoder(imgs)
-                    if args.net == 'sam' or args.net == 'mobile_sam':
-                        se, de = net.module.prompt_encoder(points=pt, boxes=None, masks=None) if args.distributed != 'none' else net.prompt_encoder(points=pt, boxes=None, masks=None) 
-                    elif args.net == "efficient_sam":
-                        coords_torch,labels_torch = transform_prompt(coords_torch,labels_torch,h,w)
-                        se = net.prompt_encoder(
-                            coords=coords_torch,
-                            labels=labels_torch,
-                        )
+                    if val_mode != 'deep_ensemble':
+                        if args.distributed != 'none':
+                            imge, encoder_attns = net.module.image_encoder(imgs)
+                        else: 
+                            imge, encoder_attns = net.image_encoder(imgs)
+                        if args.net == 'sam' or args.net == 'mobile_sam':
+                            se, de = net.module.prompt_encoder(points=pt, boxes=None, masks=None) if args.distributed != 'none' else net.prompt_encoder(points=pt, boxes=None, masks=None) 
+                        elif args.net == "efficient_sam":
+                            coords_torch,labels_torch = transform_prompt(coords_torch,labels_torch,h,w)
+                            se = net.prompt_encoder(
+                                coords=coords_torch,
+                                labels=labels_torch,
+                            )
 
                     if args.net == 'sam':
-                        pred, _, decoder_attns = net.mask_decoder(
-                            image_embeddings=imge,
-                            image_pe=net.prompt_encoder.get_dense_pe(), 
-                            sparse_prompt_embeddings=se,
-                            dense_prompt_embeddings=de, 
-                            multimask_output=(args.multimask_output > 1),
-                        )
+                        if val_mode == 'mc_dropout':
+                            preds = []
+                            for _ in range(10):
+                                imge_i = F.dropout(imge, p=0.3, training=True)
+                                pe_i = F.dropout(net.prompt_encoder.get_dense_pe(), p=0.3, training=True)
+                                se_i = F.dropout(se, p=0.3, training=True)
+                                de_i = F.dropout(de, p=0.3, training=True)
+                                pred, _, decoder_attns = net.mask_decoder(
+                                    image_embeddings=imge_i,
+                                    image_pe=pe_i, 
+                                    sparse_prompt_embeddings=se_i,
+                                    dense_prompt_embeddings=de_i, 
+                                    multimask_output=(args.multimask_output > 1),
+                                )
+                                preds.append(pred)
+                            preds = torch.stack(preds, dim=0)
+                            pred = preds.mean(dim=0)
+                            pred_var = preds.var(dim=0)
+                        elif val_mode == 'deep_ensemble':
+                            preds = []
+                            for net_i in net:
+                                if args.distributed != 'none':
+                                    imge, encoder_attns = net_i.module.image_encoder(imgs)
+                                else: 
+                                    imge, encoder_attns = net_i.image_encoder(imgs)
+                                if args.net == 'sam' or args.net == 'mobile_sam':
+                                    se, de = net_i.module.prompt_encoder(points=pt, boxes=None, masks=None) if args.distributed != 'none' else net_i.prompt_encoder(points=pt, boxes=None, masks=None) 
+                                elif args.net == "efficient_sam":
+                                    coords_torch,labels_torch = transform_prompt(coords_torch,labels_torch,h,w)
+                                    se = net_i.prompt_encoder(
+                                        coords=coords_torch,
+                                        labels=labels_torch,
+                                    )
+                                pred, _, decoder_attns = net_i.mask_decoder(
+                                        image_embeddings=imge,
+                                        image_pe=net_i.prompt_encoder.get_dense_pe(), 
+                                        sparse_prompt_embeddings=se,
+                                        dense_prompt_embeddings=de, 
+                                        multimask_output=(args.multimask_output > 1),
+                                    )
+                                preds.append(pred)
+                            preds = torch.stack(preds, dim=0)
+                            pred = preds.mean(dim=0)
+                            pred_var = preds.var(dim=0)
+                        else:
+                            pred, _, decoder_attns = net.mask_decoder(
+                                image_embeddings=imge,
+                                image_pe=net.prompt_encoder.get_dense_pe(), 
+                                sparse_prompt_embeddings=se,
+                                dense_prompt_embeddings=de, 
+                                multimask_output=(args.multimask_output > 1),
+                            )
                     elif args.net == 'mobile_sam':
                         pred, _ = net.mask_decoder(
                             image_embeddings=imge,
@@ -373,11 +426,13 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
                     # Resize to the ordered output size
                     #exitbreakpoint()
                     pred = F.interpolate(pred,size=(args.out_size,args.out_size))
+                    if val_mode in ['mc_dropout', 'deep_ensemble']:
+                        pred_var = F.interpolate(pred_var, size=(args.out_size, args.out_size))
+                        pred_ls.append(pred)
+                        mask_ls.append(masks)
+                        pred_var_ls.append(pred_var)
+
                     tot += lossfunc(pred, masks).item()
-                    # breakpoint()
-                    
-                    #print("decoder attn map")
-                    #print(f"final: {decoder_attns[-1].shape}")
 
                     '''vis images'''
                     if args.vis and ind % args.vis == 1:
@@ -423,6 +478,7 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
                         # pred_sigmoid = torch.sigmoid(pred)
                         # error_map = torch.abs(masks - pred_sigmoid)
                         vis_image(imgs,pred, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
+                        vis_image(imgs,pred_var, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '_var.jpg'), reverse=False, points=showp)
                     # breakpoint()
 
                     temp = eval_seg(pred, masks, threshold)
@@ -432,6 +488,22 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
 
     if args.evl_chunk:
         n_val = n_val * (imgsw.size(-1) // evl_ch)
+
+    if val_mode in ['mc_dropout', 'deep_ensemble']:
+        # calculate correlation between predictions errors and uncertainty
+        pred_ls = torch.cat(pred_ls, dim=0)
+        pred_ls = (torch.sigmoid(pred_ls) > 0.5).float().squeeze(1)
+        mask_ls = torch.cat(mask_ls, dim=0).squeeze(1)
+        loss = (pred_ls != mask_ls).float().flatten(start_dim=1)
+        # pred_ls = torch.cat([1 - pred_ls, pred_ls], dim=1)
+        # mask_ls = torch.cat([1 - mask_ls, mask_ls], dim=1)
+        # lss = nn.CrossEntropyLoss(reduction="none")
+        # loss = lss(pred_ls, mask_ls) # consider this as the error
+
+        pred_var_ls = torch.cat(pred_var_ls, dim=0).squeeze(1).flatten(start_dim=1)
+        cov = (loss - loss.mean(axis=1, keepdims=True)) * (pred_var_ls - pred_var_ls.mean(axis=1, keepdims=True))
+        pearson_corr = cov.mean(axis=1) / (loss.std(axis=1, unbiased=False) * pred_var_ls.std(axis=1, unbiased=False) + 1e-8)
+        print(f"Average Pearson correlation: {pearson_corr.mean()}")
 
     return tot/ n_val , tuple([a/n_val for a in mix_res])
 

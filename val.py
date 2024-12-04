@@ -41,32 +41,66 @@ def main():
 
     GPUdevice = torch.device('cuda', args.gpu_device)
 
-    net = get_network(args, args.net, use_gpu=args.gpu, gpu_device=GPUdevice, distribution = args.distributed)
+    if args.val_mode == 'deep_ensemble':
+        assert len(args.weights_ensemble) > 0
+        net = []
+        for weights in args.weights_ensemble:
+            net_i = get_network(args, args.net, use_gpu=args.gpu, gpu_device=GPUdevice, distribution = args.distributed)
 
-    '''load pretrained model'''
-    assert args.weights != 0
-    print(f'=> resuming from {args.weights}')
-    assert os.path.exists(args.weights)
-    checkpoint_file = os.path.join(args.weights)
-    assert os.path.exists(checkpoint_file)
-    loc = 'cuda:{}'.format(args.gpu_device)
-    checkpoint = torch.load(checkpoint_file, map_location=loc)
-    start_epoch = checkpoint['epoch']
-    best_tol = checkpoint['best_tol']
+            '''load pretrained model'''
+            weights = ''.join(weights)
+            print(f'=> resuming from {weights}')
+            assert os.path.exists(weights)
+            checkpoint_file = os.path.join(weights)
+            assert os.path.exists(checkpoint_file)
+            loc = 'cuda:{}'.format(args.gpu_device)
+            checkpoint = torch.load(checkpoint_file, map_location=loc)
+            start_epoch = checkpoint['epoch']
+            best_tol = checkpoint['best_tol']
 
-    state_dict = checkpoint['state_dict']
-    if args.distributed != 'none':
-        from collections import OrderedDict
-        new_state_dict = OrderedDict()
-        for k, v in state_dict.items():
-            # name = k[7:] # remove `module.`
-            name = 'module.' + k
-            new_state_dict[name] = v
-        # load params
+            state_dict = checkpoint['state_dict']
+            if args.distributed != 'none':
+                from collections import OrderedDict
+                new_state_dict = OrderedDict()
+                for k, v in state_dict.items():
+                    # name = k[7:] # remove `module.`
+                    name = 'module.' + k
+                    new_state_dict[name] = v
+                # load params
+            else:
+                new_state_dict = state_dict
+
+            net_i.load_state_dict(new_state_dict)
+            net_i.eval()
+            net.append(net_i)
     else:
-        new_state_dict = state_dict
+        net = get_network(args, args.net, use_gpu=args.gpu, gpu_device=GPUdevice, distribution = args.distributed)
 
-    net.load_state_dict(new_state_dict)
+        '''load pretrained model'''
+        assert args.weights != 0
+        print(f'=> resuming from {args.weights}')
+        assert os.path.exists(args.weights)
+        checkpoint_file = os.path.join(args.weights)
+        assert os.path.exists(checkpoint_file)
+        loc = 'cuda:{}'.format(args.gpu_device)
+        checkpoint = torch.load(checkpoint_file, map_location=loc)
+        start_epoch = checkpoint['epoch']
+        best_tol = checkpoint['best_tol']
+
+        state_dict = checkpoint['state_dict']
+        if args.distributed != 'none':
+            from collections import OrderedDict
+            new_state_dict = OrderedDict()
+            for k, v in state_dict.items():
+                # name = k[7:] # remove `module.`
+                name = 'module.' + k
+                new_state_dict[name] = v
+            # load params
+        else:
+            new_state_dict = state_dict
+
+        net.load_state_dict(new_state_dict)
+        net.eval()
 
     # args.path_helper = checkpoint['path_helper']
     # logger = create_logger(args.path_helper['log_path'])
@@ -87,11 +121,8 @@ def main():
     best_acc = 0.0
     best_tol = 1e4
 
-    #if args.mod == 'sam_adapt':
-    net.eval()
-
     if args.dataset != 'REFUGE':
-        tol, (eiou, edice) = function.validation_sam(args, nice_test_loader, start_epoch, net)
+        tol, (eiou, edice) = function.validation_sam(args, nice_test_loader, start_epoch, net, val_mode=args.val_mode)
         logger.info(f'Total score: {tol}, IOU: {eiou}, DICE: {edice} || @ epoch {start_epoch}.')
     else:
         tol, (eiou_cup, eiou_disc, edice_cup, edice_disc) = function.validation_sam(args, nice_test_loader, start_epoch, net)

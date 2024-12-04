@@ -71,12 +71,9 @@ class AdapterBlock(nn.Module):
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         shortcut = x
         # Window partition
-        print(x.shape)
         if self.window_size > 0:
-            print("window")
             H, W = x.shape[1], x.shape[2]
             x, pad_hw = window_partition(x, self.window_size)
-            print(x.shape)
         ## 3d branch
         if self.args.thd: 
             hh, ww = x.shape[1], x.shape[2]

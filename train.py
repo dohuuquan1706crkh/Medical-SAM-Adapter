@@ -34,11 +34,19 @@ from conf import settings
 #from models.discriminatorlayer import discriminator
 from dataset import *
 from utils import *
+import random
+
+def seed_everything(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    random.seed(seed)
 
 def main():
 
     args = cfg.parse_args()
-
+    seed_everything(args.seed)
     GPUdevice = torch.device('cuda', args.gpu_device)
 
     net = get_network(args, args.net, use_gpu=args.gpu, gpu_device=GPUdevice, distribution = args.distributed)
@@ -87,7 +95,7 @@ def main():
     #create checkpoint folder to save model
     if not os.path.exists(checkpoint_path):
         os.makedirs(checkpoint_path)
-    checkpoint_path = os.path.join(checkpoint_path, '{net}-{epoch}-{type}.pth')
+    checkpoint_name = '{net}-{epoch}-{type}-{seed}.pth'
 
     '''begain training'''
     best_acc = 0.0
@@ -95,7 +103,6 @@ def main():
     best_dice = 0.0
 
     for epoch in range(settings.EPOCH):
-
         if epoch and epoch < 5:
             if args.dataset != 'REFUGE':
                 tol, (eiou, edice) = function.validation_sam(args, nice_test_loader, epoch, net, writer)
@@ -112,7 +119,7 @@ def main():
         print('time_for_training ', time_end - time_start)
 
         net.eval()
-        if epoch and epoch % args.val_freq == 0 or epoch == settings.EPOCH-1:
+        if epoch and (epoch % args.val_freq == 0 or epoch == settings.EPOCH-1):
             if args.dataset != 'REFUGE':
                 tol, (eiou, edice) = function.validation_sam(args, nice_test_loader, epoch, net, writer)
                 logger.info(f'Total score: {tol}, IOU: {eiou}, DICE: {edice} || @ epoch {epoch}.')
@@ -121,15 +128,13 @@ def main():
                 edice = (edice_cup + edice_disc) / 2.0
                 logger.info(f'Total score: {tol}, IOU_CUP: {eiou_cup}, IOU_DISC: {eiou_disc}, DICE_CUP: {edice_cup}, DICE_DISC: {edice_disc}, DICE: {edice} || @ epoch {epoch}.')
                 
-
             if args.distributed != 'none':
                 sd = net.module.state_dict()
             else:
                 sd = net.state_dict()
 
             if edice > best_dice:
-                best_tol = tol
-                is_best = True
+                best_dice = edice
 
                 save_checkpoint({
                 'epoch': epoch + 1,
@@ -138,9 +143,18 @@ def main():
                 'optimizer': optimizer.state_dict(),
                 'best_tol': best_dice,
                 'path_helper': args.path_helper,
-            }, is_best, args.path_helper['ckpt_path'], filename="best_dice_checkpoint.pth")
+            }, checkpoint_path, 
+            filename=checkpoint_name.format(net=args.net, epoch=epoch, type='best', seed=args.seed))
             else:
-                is_best = False
+                save_checkpoint({
+                'epoch': epoch + 1,
+                'model': args.net,
+                'state_dict': sd,
+                'optimizer': optimizer.state_dict(),
+                'best_tol': best_dice,
+                'path_helper': args.path_helper,
+            }, checkpoint_path, 
+            filename=checkpoint_name.format(net=args.net, epoch=epoch, type='last', seed=args.seed))
 
     writer.close()
 

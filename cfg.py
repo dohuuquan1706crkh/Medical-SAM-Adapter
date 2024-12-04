@@ -1,8 +1,9 @@
 import argparse
 
 
-def parse_args():    
+def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument('-seed', type=int, default=42, help='seeding number')
     parser.add_argument('-net', type=str, default='sam', help='net type')
     parser.add_argument('-baseline', type=str, default='unet', help='baseline net type')
     parser.add_argument('-encoder', type=str, default='default', help='encoder type')
@@ -14,6 +15,7 @@ def parse_args():
     parser.add_argument('-reverse', type=bool, default=False, help='adversary reverse')
     parser.add_argument('-pretrain', type=bool, default=False, help='adversary reverse')
     parser.add_argument('-val_freq',type=int,default=5,help='interval between each validation')
+    parser.add_argument('-val_mode',type=str,default='normal',help='Eval mode: normal, mc_dropout, deep_ensemble')
     parser.add_argument('-gpu', type=bool, default=True, help='use gpu or not')
     parser.add_argument('-gpu_device', type=int, default=0, help='use which gpu')
     parser.add_argument('-sim_gpu', type=int, default=0, help='split sim to this gpu')
@@ -33,6 +35,7 @@ def parse_args():
     parser.add_argument('-uinch', type=int, default=1, help='input channel of unet')
     parser.add_argument('-imp_lr', type=float, default=3e-4, help='implicit learning rate')
     parser.add_argument('-weights', type=str, default = 0, help='the weights file you want to test')
+    parser.add_argument('-weights_ensemble', type=list, action='append', default = [], help='the weights files you want to do ensemble')
     parser.add_argument('-base_weights', type=str, default = 0, help='the weights baseline')
     parser.add_argument('-sim_weights', type=str, default = 0, help='the weights sim')
     parser.add_argument('-distributed', default='none' ,type=str,help='multi GPU ids to use')
