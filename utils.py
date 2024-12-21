@@ -83,7 +83,7 @@ def get_network(args, net, use_gpu=True, gpu_device = 0, distribution = True):
     if net == 'sam':
         from models.sam import SamPredictor, sam_model_registry
         from models.sam.utils.transforms import ResizeLongestSide
-        options = ['default','vit_b','vit_l','vit_h']
+        options = ['default','vit_b','vit_l','vit_h', 'bayescap_decoder']
         if args.encoder not in options:
             raise ValueError("Invalid encoder option. Please choose from: {}".format(options))
         else:

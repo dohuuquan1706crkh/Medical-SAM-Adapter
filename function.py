@@ -28,7 +28,7 @@ from tensorboardX import SummaryWriter
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from loss import RecLoss
+from loss import RecLoss, GenGaussLoss
 import cfg
 import models.sam.utils.transforms as samtrans
 import pytorch_ssim
@@ -82,6 +82,8 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     elif args.loss == "evidential":
         lossfunc = RecLoss()
         print("use evidential")
+    
+    loss_uncert = GenGaussLoss()
 
     with tqdm(total=len(train_loader), desc=f'Epoch {epoch}', unit='img') as pbar:
         for pack in train_loader:
@@ -175,12 +177,20 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                     )
                     
             if args.net == 'sam':
-                pred, _, _ = net.module.mask_decoder(
-                    image_embeddings=imge, 
-                    image_pe=net.module.prompt_encoder.get_dense_pe(), 
-                    sparse_prompt_embeddings=se, 
-                    dense_prompt_embeddings=de, 
-                    multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
+                if args.encoder != 'bayescap_decoder':
+                    pred, _, _ = net.module.mask_decoder(
+                        image_embeddings=imge, 
+                        image_pe=net.module.prompt_encoder.get_dense_pe(), 
+                        sparse_prompt_embeddings=se, 
+                        dense_prompt_embeddings=de, 
+                        multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
+                else:
+                    pred, pred_a, pred_b, _, _ = net.module.mask_decoder(
+                        image_embeddings=imge, 
+                        image_pe=net.module.prompt_encoder.get_dense_pe(), 
+                        sparse_prompt_embeddings=se, 
+                        dense_prompt_embeddings=de, 
+                        multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
             elif args.net == 'mobile_sam':
                 pred, _ = net.mask_decoder(
                     image_embeddings=imge,
@@ -205,8 +215,10 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 
             # Resize to the ordered output size
             pred = F.interpolate(pred,size=(args.out_size,args.out_size))
-            #print(pred.shape, masks.shape)     [2, 1, 1024, 1024]   [2, 1, 1024, 1024]
-            #print(pred.min(), pred.max(), masks.min(), masks.max()) 
+            if args.encoder == 'bayescap_decoder':
+                pred_a = F.interpolate(pred_a,size=(args.out_size,args.out_size))
+                pred_b = F.interpolate(pred_b,size=(args.out_size,args.out_size))
+
             if args.loss == "evidential":
                 loss = lossfunc(pred, masks, epoch)
                 
@@ -217,6 +229,10 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
             else: 
                 loss = lossfunc(pred, masks)
                 # breakpoint()
+                if args.encoder == 'bayescap_decoder':
+                    loss_u = loss_uncert(pred, pred_a, pred_b, masks)
+                    # import IPython; IPython.embed(); exit(1)
+                    loss = loss + loss_u * 1e-3
 
                 pbar.set_postfix(**{'loss (batch)': loss.item()})
                 epoch_loss += loss.item()
@@ -366,6 +382,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
                                 preds.append(pred)
                             preds = torch.stack(preds, dim=0)
                             pred = preds.mean(dim=0)
+                            preds = torch.sigmoid(preds)
                             pred_var = preds.var(dim=0)
                         elif val_mode == 'deep_ensemble':
                             preds = []
@@ -392,15 +409,25 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
                                 preds.append(pred)
                             preds = torch.stack(preds, dim=0)
                             pred = preds.mean(dim=0)
+                            preds = torch.sigmoid(preds)
                             pred_var = preds.var(dim=0)
                         else:
-                            pred, _, decoder_attns = net.mask_decoder(
-                                image_embeddings=imge,
-                                image_pe=net.prompt_encoder.get_dense_pe(), 
-                                sparse_prompt_embeddings=se,
-                                dense_prompt_embeddings=de, 
-                                multimask_output=(args.multimask_output > 1),
-                            )
+                            if args.encoder != 'bayescap_decoder':
+                                pred, _, decoder_attns = net.mask_decoder(
+                                    image_embeddings=imge,
+                                    image_pe=net.prompt_encoder.get_dense_pe(), 
+                                    sparse_prompt_embeddings=se,
+                                    dense_prompt_embeddings=de, 
+                                    multimask_output=(args.multimask_output > 1),
+                                )
+                            else:
+                                pred, pred_a, pred_b, _, decoder_attns = net.mask_decoder(
+                                    image_embeddings=imge,
+                                    image_pe=net.prompt_encoder.get_dense_pe(), 
+                                    sparse_prompt_embeddings=se,
+                                    dense_prompt_embeddings=de, 
+                                    multimask_output=(args.multimask_output > 1),
+                                )
                     elif args.net == 'mobile_sam':
                         pred, _ = net.mask_decoder(
                             image_embeddings=imge,
@@ -426,6 +453,15 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
                     # Resize to the ordered output size
                     #exitbreakpoint()
                     pred = F.interpolate(pred,size=(args.out_size,args.out_size))
+                    if args.encoder == 'bayescap_decoder':
+                        pred_a = F.interpolate(pred_a,size=(args.out_size,args.out_size))
+                        pred_b = F.interpolate(pred_b,size=(args.out_size,args.out_size))
+                        # uncertainty
+                        # pred_var = (1 / pred_a**2) * torch.lgamma(3 / pred_b).exp() / torch.lgamma(1 / pred_b).exp()
+                        pred_var = (pred_a**2) * torch.lgamma(3 / pred_b).exp() / torch.lgamma(1 / pred_b).exp()
+                        pred_ls.append(pred)
+                        mask_ls.append(masks)
+                        pred_var_ls.append(pred_var)
                     if val_mode in ['mc_dropout', 'deep_ensemble']:
                         pred_var = F.interpolate(pred_var, size=(args.out_size, args.out_size))
                         pred_ls.append(pred)
@@ -451,32 +487,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
                         for na in name[:2]:
                             img_name = na.split('/')[-1].split('.')[0]
                             namecat = namecat + img_name + '+'
-                        # #print("encoder attn map")
-                        # compose = [F.interpolate(imgs,size=(64,64)).detach().cpu().expand(imgs.shape[0], 3, 64, 64), F.interpolate(masks,size=(64,64)).detach().cpu().expand(masks.shape[0], 3, 64, 64)]
-                        # for i, attn in enumerate(encoder_attns):
-                        #   print(attn.shape)  
-                        #   #attn = F.interpolate(attn, size=(128, 128), mode=)
-                        #   #attn = (attn - attn.amin(dim=(-1, -2), keepdim=True)) / (attn.amax(dim=(-1, -2), keepdim=True) - attn.amin(dim=(-1, -2), keepdim=True)
-                        #   attn = (attn - attn.amin(dim=(-1, -2), keepdim=True)) / (attn.amax(dim=(-1, -2), keepdim=True) - attn.amin(dim=(-1, -2), keepdim=True))
-                        #   grad_attn = compute_gradient_map(attn)
-                        #   #attn = attn.expand(attn.shape[0],3,attn.shape[1],attn.shape[2])
-                        #   compose += [attn.expand(attn.shape[0],3,attn.shape[2],attn.shape[3])]
-                        #   compose += [grad_attn.expand(attn.shape[0],3,attn.shape[2],attn.shape[3])]
-                        #   # print(f"layer {i}: {attn.shape}")
-                        # compose = torch.cat(compose, 0)
-                        # vutils.save_image(compose, fp = os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + "_encoder_attn.jpg"), nrow = pred.shape[0], padding = 10)
-                        # # print("decoder map")
-                        # compose = [F.interpolate(imgs,size=(64,64)).detach().cpu().expand(imgs.shape[0], 3, 64, 64), F.interpolate(masks,size=(64,64)).detach().cpu().expand(masks.shape[0], 3, 64, 64)]
-                        # for attn in decoder_attns:
-                        #     attn = attn[1].mean(dim=-1).view(attn[1].shape[0], 64, 64).detach().cpu().unsqueeze(1)
-                        #     attn = (attn - attn.amin(dim=(-1, -2), keepdim=True)) / (attn.amax(dim=(-1, -2), keepdim=True) - attn.amin(dim=(-1, -2), keepdim=True))
-                        #     grad_attn = compute_gradient_map(attn)
-                        #     compose += [attn.expand(attn.shape[0], 3, 64, 64)]
-                        #     compose += [grad_attn.expand(attn.shape[0],3,attn.shape[2],attn.shape[3])]
-                        # compose = torch.cat(compose, 0)
-                        # vutils.save_image(compose, fp = os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + "_decoder_attn.jpg"), nrow = pred.shape[0], padding = 10)
-                        # pred_sigmoid = torch.sigmoid(pred)
-                        # error_map = torch.abs(masks - pred_sigmoid)
+                        
                         vis_image(imgs,pred, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
                         vis_image(imgs,pred_var, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '_var.jpg'), reverse=False, points=showp)
                     # breakpoint()
@@ -489,7 +500,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
     if args.evl_chunk:
         n_val = n_val * (imgsw.size(-1) // evl_ch)
 
-    if val_mode in ['mc_dropout', 'deep_ensemble']:
+    if val_mode in ['mc_dropout', 'deep_ensemble', 'bayescap']:
         # calculate correlation between predictions errors and uncertainty
         pred_ls = torch.cat(pred_ls, dim=0)
         pred_ls = (torch.sigmoid(pred_ls) > 0.5).float().squeeze(1)
