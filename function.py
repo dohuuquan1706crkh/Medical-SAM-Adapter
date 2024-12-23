@@ -24,6 +24,8 @@ from PIL import Image
 from skimage import io
 from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score
 from tensorboardX import SummaryWriter
+from sklearn.calibration import calibration_curve
+
 #from dataset import *
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
@@ -82,6 +84,10 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     elif args.loss == "evidential":
         lossfunc = RecLoss()
         print("use evidential")
+    elif args.loss == "evidential_Dice":
+        lossfunc1 = RecLoss()
+        lossfunc2 = DiceCELoss()
+        print("use evidential_Dice")
 
     with tqdm(total=len(train_loader), desc=f'Epoch {epoch}', unit='img') as pbar:
         for pack in train_loader:
@@ -89,7 +95,9 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
             imgs = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             #print(imgs.shape)
             masks = pack['label'].to(dtype = torch.float32, device = GPUdevice)
+            # masks = (masks >0.5).float()
             #print(masks.shape)
+            # breakpoint()
             # for k,v in pack['image_meta_dict'].items():
             #     print(k)
             if 'pt' not in pack:
@@ -202,25 +210,32 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                     sparse_prompt_embeddings=se,
                     multimask_output=(args.multimask_output > 1),
                 )
+            # breakpoint()
                 
             # Resize to the ordered output size
+            # breakpoint()
             pred = F.interpolate(pred,size=(args.out_size,args.out_size))
             #print(pred.shape, masks.shape)     [2, 1, 1024, 1024]   [2, 1, 1024, 1024]
             #print(pred.min(), pred.max(), masks.min(), masks.max()) 
             if args.loss == "evidential":
+                # breakpoint()
                 loss = lossfunc(pred, masks, epoch)
-                
-                pbar.set_postfix(**{'loss (batch)': loss})
-                # breakpoint()
-
+                pbar.set_postfix(**{'loss (batch)': loss.item()})
                 epoch_loss += loss.item()
-            else: 
-                loss = lossfunc(pred, masks)
-                # breakpoint()
-
+            elif args.loss == "evidential_Dice":
+                loss1 = lossfunc1(pred, masks, epoch)
+                loss2 = lossfunc2(pred[:,1,:,:].unsqueeze(1) - pred[:,0,:,:].unsqueeze(1), masks) 
+                # loss = loss1 + loss2
+                loss = loss1
                 pbar.set_postfix(**{'loss (batch)': loss.item()})
                 epoch_loss += loss.item()
 
+            else: 
+                loss1 = lossfunc(pred, masks)
+                loss = loss1
+                pbar.set_postfix(**{'loss (batch)': loss.item()})
+                epoch_loss += loss.item()
+            # breakpoint()
             # nn.utils.clip_grad_value_(net.parameters(), 0.1)
             if args.mod == 'sam_adalora':
                 (loss+lora.compute_orth_regu(net, regu_weight=0.1)).backward()
@@ -233,12 +248,16 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
             optimizer.zero_grad()
 
             '''vis images'''
+            
             if vis:
                 if ind % vis == 0:
                     namecat = 'Train'
                     for na in name[:2]:
                         namecat = namecat + na.split('/')[-1].split('.')[0] + '+'
-                    vis_image(imgs,pred,masks, None, os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
+                    # breakpoint()
+                    if args.loss == "evidential" or args.loss == "evidential_Dice":
+                        pred = pred[:,1,:,:].unsqueeze(1) - pred[:,0,:,:].unsqueeze(1)
+                    vis_image(imgs,pred ,masks, None,save_path = os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
 
             pbar.update()
 
@@ -257,15 +276,27 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
     threshold = (0.1, 0.3, 0.5, 0.7, 0.9)
     GPUdevice = torch.device('cuda:' + str(args.gpu_device))
     device = GPUdevice
-
-    if args.thd:
+    if args.loss == "DiceCELoss":
         lossfunc = DiceCELoss(sigmoid=True, squared_pred=True, reduction='mean')
-    else:
+        print("use DiceCELoss")
+    elif args.loss == "BCEWithLogitsLoss":
         lossfunc = criterion_G
-
+        print("use BCEWithLogitsLoss")
+    elif args.loss == "evidential":
+        lossfunc = RecLoss()
+        print("use evidential")
+    elif args.loss == "evidential_Dice":
+        lossfunc1 = RecLoss()
+        lossfunc2 = DiceCELoss()
+        print("use evidential_Dice")
+    # if args.thd:
+    #     lossfunc = DiceCELoss(sigmoid=True, squared_pred=True, reduction='mean')
+    # else:
+    #     lossfunc = criterion_G
+    pred_ls = []
+    masks_ls = []
     with tqdm(total=n_val, desc='Validation round', unit='batch', leave=False) as pbar:
         for ind, pack in enumerate(val_loader):
-            # breakpoint()
             imgsw = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             masksw = pack['label'].to(dtype = torch.float32, device = GPUdevice)
             # for k,v in pack['image_meta_dict'].items():
@@ -369,23 +400,31 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
                             sparse_prompt_embeddings=se,
                             multimask_output=(args.multimask_output > 1),
                         )
-
+                    # breakpoint()
                     # Resize to the ordered output size
                     #exitbreakpoint()
+                    # if args.loss == "evidential":
+                    #     pred = torch.relu(pred)
+                        # breakpoint()
+                    # if pred.shape[1] == 2:
+                    #     pred = pred[:,1,:,:].unsqueeze(1) - pred[:,0,:,:].unsqueeze(1)
+                    
                     pred = F.interpolate(pred,size=(args.out_size,args.out_size))
                     tot += lossfunc(pred, masks).item()
+                    pred_cpu = pred.to("cpu")
+                    # print(torch.histogram(pred_cpu))
                     # breakpoint()
-                    
                     #print("decoder attn map")
                     #print(f"final: {decoder_attns[-1].shape}")
 
                     '''vis images'''
+                    if args.loss == "evidential" or args.loss == "evidential_Dice":
+                        pred = pred[:,1,:,:].unsqueeze(1) - pred[:,0,:,:].unsqueeze(1)
                     if args.vis and ind % args.vis == 1:
                         # compute entropy map
                         #print("vis image")
                         x = torch.sigmoid(pred)
                         #x = x.view(pred.shape[0], pred.shape[1], pred.shape[2], pred.shape[3])
-                        #print(sigmoid.shape)
                         x = -x*torch.log(x + 1e-8) - (1 - x) * torch.log(1 - x + 1e-8)
                         x = (x - x.amin(dim=(-1, -2), keepdim=True)) / (x.amax(dim=(-1, -2), keepdim=True) - x.amin(dim=(-1, -2), keepdim=True))
                         #print(entropy.shape)
@@ -396,42 +435,63 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
                         for na in name[:2]:
                             img_name = na.split('/')[-1].split('.')[0]
                             namecat = namecat + img_name + '+'
-                        # #print("encoder attn map")
-                        # compose = [F.interpolate(imgs,size=(64,64)).detach().cpu().expand(imgs.shape[0], 3, 64, 64), F.interpolate(masks,size=(64,64)).detach().cpu().expand(masks.shape[0], 3, 64, 64)]
-                        # for i, attn in enumerate(encoder_attns):
-                        #   print(attn.shape)  
-                        #   #attn = F.interpolate(attn, size=(128, 128), mode=)
-                        #   #attn = (attn - attn.amin(dim=(-1, -2), keepdim=True)) / (attn.amax(dim=(-1, -2), keepdim=True) - attn.amin(dim=(-1, -2), keepdim=True)
-                        #   attn = (attn - attn.amin(dim=(-1, -2), keepdim=True)) / (attn.amax(dim=(-1, -2), keepdim=True) - attn.amin(dim=(-1, -2), keepdim=True))
-                        #   grad_attn = compute_gradient_map(attn)
-                        #   #attn = attn.expand(attn.shape[0],3,attn.shape[1],attn.shape[2])
-                        #   compose += [attn.expand(attn.shape[0],3,attn.shape[2],attn.shape[3])]
-                        #   compose += [grad_attn.expand(attn.shape[0],3,attn.shape[2],attn.shape[3])]
-                        #   # print(f"layer {i}: {attn.shape}")
-                        # compose = torch.cat(compose, 0)
-                        # vutils.save_image(compose, fp = os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + "_encoder_attn.jpg"), nrow = pred.shape[0], padding = 10)
-                        # # print("decoder map")
-                        # compose = [F.interpolate(imgs,size=(64,64)).detach().cpu().expand(imgs.shape[0], 3, 64, 64), F.interpolate(masks,size=(64,64)).detach().cpu().expand(masks.shape[0], 3, 64, 64)]
-                        # for attn in decoder_attns:
-                        #     attn = attn[1].mean(dim=-1).view(attn[1].shape[0], 64, 64).detach().cpu().unsqueeze(1)
-                        #     attn = (attn - attn.amin(dim=(-1, -2), keepdim=True)) / (attn.amax(dim=(-1, -2), keepdim=True) - attn.amin(dim=(-1, -2), keepdim=True))
-                        #     grad_attn = compute_gradient_map(attn)
-                        #     compose += [attn.expand(attn.shape[0], 3, 64, 64)]
-                        #     compose += [grad_attn.expand(attn.shape[0],3,attn.shape[2],attn.shape[3])]
-                        # compose = torch.cat(compose, 0)
-                        # vutils.save_image(compose, fp = os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + "_decoder_attn.jpg"), nrow = pred.shape[0], padding = 10)
-                        # pred_sigmoid = torch.sigmoid(pred)
-                        # error_map = torch.abs(masks - pred_sigmoid)
                         vis_image(imgs,pred, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
-                    # breakpoint()
-
                     temp = eval_seg(pred, masks, threshold)
-                    mix_res = tuple([sum(a) for a in zip(mix_res, temp)])
-
+                    mix_res = tuple([sum(a) for a in zip(mix_res, temp)])                
             pbar.update()
-
+            pred_ls.append(pred)
+            masks_ls.append(masks)
+            # break
     if args.evl_chunk:
         n_val = n_val * (imgsw.size(-1) // evl_ch)
+    if True:
+        # calculate correlation between predictions errors and uncertainty
+        pred_ls = torch.cat(pred_ls, dim=0)
+        pred_sigmoid = (torch.sigmoid(pred_ls)).squeeze(1)
+        entropy_map = (pred_sigmoid*torch.log(pred_sigmoid+ 1e-10) - (1-pred_sigmoid)*torch.log(1-pred_sigmoid+ 1e-10)).flatten(start_dim=1)
+        preds = (pred_sigmoid > 0.5).float()
+        masks_ls = torch.cat(masks_ls, dim=0).squeeze(1)
+        
+        loss = (preds != masks_ls).float().flatten(start_dim=1)
+        # breakpoint()
+
+        cov = (loss - loss.mean(axis=1, keepdims=True)) * (entropy_map - entropy_map.mean(axis=1, keepdims=True))
+        pearson_corr = cov.mean(axis=1) / (loss.std(axis=1, unbiased=False) * entropy_map.std(axis=1, unbiased=False) + 1e-8)
+        # breakpoint()
+        print(f"Average Pearson correlation: {pearson_corr.mean()}")
+        preds_prob = torch.where(pred_sigmoid > 0.5, pred_sigmoid, 1 - pred_sigmoid)
+        correct_predictions = (1 - loss).bool()
+
+
+        # Convert tensors to numpy arrays
+        confidence_scores = preds_prob.flatten().cpu().numpy()
+        correct_predictions = correct_predictions.flatten().cpu().numpy()
+
+        # 1. Confidence Histogram
+        plt.figure(figsize=(10, 5))
+        plt.yscale("log")
+        plt.hist(confidence_scores, bins=400, range=(0.5 , 1), alpha=0.7, color='blue', edgecolor='black')
+        plt.title("Confidence Histogram")
+        plt.xlabel("Predicted Confidence")
+        plt.ylabel("Frequency")
+        plt.savefig("plot/confidence_histogram+epoch" + str(epoch) +".png")
+        plt.close()
+
+        # 2. Reliability Diagram
+        # Compute calibration curve
+        prob_true, prob_pred = calibration_curve(correct_predictions, confidence_scores, n_bins=800)
+
+        plt.figure(figsize=(10, 5))
+        plt.plot(prob_pred, prob_true, marker='o', label="Model")
+        plt.plot([0.51, 1], [0.51, 1], linestyle='--', color='black', label="Perfect Calibration")
+        plt.title("Reliability Diagram_SAM")
+        plt.xlabel("Mean Predicted Confidence")
+        plt.ylabel("Fraction of Positives")
+        plt.legend()
+        plt.savefig("plot/reliability_diagram_SAM+epoch" + str(epoch) +".png")
+        plt.close()
+
+        print("Confidence histogram and reliability diagram saved as 'confidence_histogram_SAM.png' and 'reliability_diagram_SAM.png'.")
 
     return tot/ n_val , tuple([a/n_val for a in mix_res])
 
@@ -493,3 +553,150 @@ def get_rescaled_pts(batched_points: torch.Tensor, input_h: int, input_w: int):
             dim=-1,
         )
         
+def validation_sam_iterative(args, val_loader, epoch, net: nn.Module, clean_dir=True):
+     # eval mode
+    net.eval()
+
+    mask_type = torch.float32
+    n_val = len(val_loader)  # the number of batch
+    ave_res, mix_res = (0,0,0,0), (0,)*args.multimask_output*2
+    rater_res = [(0,0,0,0) for _ in range(6)]
+    tot = 0
+    hard = 0
+    threshold = (0.1, 0.3, 0.5, 0.7, 0.9)
+    GPUdevice = torch.device('cuda:' + str(args.gpu_device))
+    device = GPUdevice
+
+    if args.thd:
+        lossfunc = DiceCELoss(sigmoid=True, squared_pred=True, reduction='mean')
+    else:
+        lossfunc = criterion_G
+
+    with tqdm(total=n_val, desc='Validation round', unit='batch', leave=False) as pbar:
+        for ind, pack in enumerate(val_loader):
+            imgsw = pack['image'].to(dtype = torch.float32, device = GPUdevice)
+            masksw = pack['label'].to(dtype = torch.float32, device = GPUdevice)
+            if 'pt' not in pack or args.thd:
+                imgsw, ptw, masksw = generate_click_prompt(imgsw, masksw)
+            else:
+                ptw = pack['pt']
+                point_labels = pack['p_label']
+            name = pack['image_meta_dict']['filename_or_obj']
+            
+            buoy = 0
+            if args.evl_chunk:
+                evl_ch = int(args.evl_chunk)
+            else:
+                evl_ch = int(imgsw.size(-1))
+
+            while (buoy + evl_ch) <= imgsw.size(-1):
+                if args.thd:
+                    pt = ptw[:,:,buoy: buoy + evl_ch]
+                else:
+                    pt = ptw
+
+                imgs = imgsw[...,buoy:buoy + evl_ch]
+                masks = masksw[...,buoy:buoy + evl_ch]
+                buoy += evl_ch
+
+                if args.thd:
+                    pt = rearrange(pt, 'b n d -> (b d) n')
+                    imgs = rearrange(imgs, 'b c h w d -> (b d) c h w ')
+                    masks = rearrange(masks, 'b c h w d -> (b d) c h w ')
+                    imgs = imgs.repeat(1,3,1,1)
+                    point_labels = torch.ones(imgs.size(0))
+
+                    imgs = torchvision.transforms.Resize((args.image_size,args.image_size))(imgs)
+                    masks = torchvision.transforms.Resize((args.out_size,args.out_size))(masks)
+                
+                showp = pt
+
+                mask_type = torch.float32
+                ind += 1
+                b_size,c,w,h = imgs.size()
+                longsize = w if w >=h else h
+
+                if point_labels.clone().flatten()[0] != -1:
+                    point_coords = pt
+                    coords_torch = torch.as_tensor(point_coords, dtype=torch.float, device=GPUdevice)
+                    labels_torch = torch.as_tensor(point_labels, dtype=torch.int, device=GPUdevice)
+                    if(len(point_labels.shape)==1): # only one point prompt
+                        coords_torch, labels_torch, showp = coords_torch[None, :, :], labels_torch[None, :], showp[None, :, :]
+                    pt = (coords_torch, labels_torch)
+
+                '''init'''
+                if hard:
+                    true_mask_ave = (true_mask_ave > 0.5).float()
+                imgs = imgs.to(dtype = mask_type,device = GPUdevice)
+                
+                '''test'''
+                prompt_masks=None
+                with torch.no_grad():
+                    for iterative in range(10):
+                        if args.distributed != 'none':
+                            imge, encoder_attns = net.module.image_encoder(imgs)
+                        else: 
+                            imge, encoder_attns = net.image_encoder(imgs)
+                        if args.net == 'sam' or args.net == 'mobile_sam':
+                            se, de = net.module.prompt_encoder(points=pt, boxes=None, masks=prompt_masks) if args.distributed != 'none' else net.prompt_encoder(points=pt, boxes=None, masks=prompt_masks) 
+                        elif args.net == "efficient_sam":
+                            coords_torch,labels_torch = transform_prompt(coords_torch,labels_torch,h,w)
+                            se = net.prompt_encoder(
+                                coords=coords_torch,
+                                labels=labels_torch,
+                            )
+                        if args.net == 'sam':
+                            pred, _, decoder_attns = net.mask_decoder(
+                                image_embeddings=imge,
+                                image_pe=net.prompt_encoder.get_dense_pe(), 
+                                sparse_prompt_embeddings=se,
+                                dense_prompt_embeddings=de, 
+                                multimask_output=(args.multimask_output > 1),
+                            )
+                        elif args.net == 'mobile_sam':
+                            pred, _ = net.mask_decoder(
+                                image_embeddings=imge,
+                                image_pe=net.prompt_encoder.get_dense_pe(), 
+                                sparse_prompt_embeddings=se,
+                                dense_prompt_embeddings=de, 
+                                multimask_output=(args.multimask_output > 1),
+                            )
+                        elif args.net == "efficient_sam":
+                            se = se.view(
+                                se.shape[0],
+                                1,
+                                se.shape[1],
+                                se.shape[2],
+                            )
+                            pred, _ = net.mask_decoder(
+                                image_embeddings=imge,
+                                image_pe=net.prompt_encoder.get_dense_pe(), 
+                                sparse_prompt_embeddings=se,
+                                multimask_output=(args.multimask_output > 1),
+                            )
+                        pred = F.interpolate(pred,size=(args.out_size,args.out_size))
+                        tot += lossfunc(pred, masks).item()
+                        '''vis images'''
+                        if args.vis and ind % args.vis == 1:
+                            x = torch.sigmoid(pred)
+                            x = -x*torch.log(x + 1e-8) - (1 - x) * torch.log(1 - x + 1e-8)
+                            x = (x - x.amin(dim=(-1, -2), keepdim=True)) / (x.amax(dim=(-1, -2), keepdim=True) - x.amin(dim=(-1, -2), keepdim=True))
+                            x_ = mae(torch.sigmoid(pred), masks)
+                            x_ = (x_ - x_.amin(dim=(-1, -2), keepdim=True)) / (x_.amax(dim=(-1, -2), keepdim=True) - x_.amin(dim=(-1, -2), keepdim=True))
+                            namecat = 'Test'
+                            for na in name[:2]:
+                                img_name = na.split('/')[-1].split('.')[0]
+                                namecat = namecat + img_name + '+'
+                            vis_image(imgs,pred, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch)+'iterative+' +str(iterative) + '.jpg'), reverse=False, points=showp)
+                        prompt_masks = F.interpolate(pred, size=(256, 256), mode='nearest')
+
+                    temp = eval_seg(pred, masks, threshold)
+                    mix_res = tuple([sum(a) for a in zip(mix_res, temp)])
+
+
+            pbar.update()
+
+    if args.evl_chunk:
+        n_val = n_val * (imgsw.size(-1) // evl_ch)
+
+    return tot/ n_val , tuple([a/n_val for a in mix_res])

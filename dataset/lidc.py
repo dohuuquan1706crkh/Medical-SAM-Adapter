@@ -24,8 +24,11 @@ class LIDC(Dataset):
         
         max_bytes = 2**31 - 1
         data = {}
+        # breakpoint()
+
         for file in os.listdir(data_path):
             filename = os.fsdecode(file)
+            # breakpoint()
             if '.pickle' in filename:
                 file_path = data_path + filename
                 bytes_in = bytearray(0)
@@ -90,7 +93,7 @@ class LIDC(Dataset):
             'label': mask,
             'p_label':point_label,
             'pt':pt,
-            'box': box,
+            # 'box': box,
             'image_meta_dict':image_meta_dict,
         }
 

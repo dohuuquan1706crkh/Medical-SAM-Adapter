@@ -88,6 +88,7 @@ class PromptEncoder(nn.Module):
         point_embedding[labels == -1] += self.not_a_point_embed.weight
         point_embedding[labels == 0] += self.point_embeddings[0].weight
         point_embedding[labels == 1] += self.point_embeddings[1].weight
+        # breakpoint()
         return point_embedding
 
     def _embed_boxes(self, boxes: torch.Tensor) -> torch.Tensor:
@@ -157,14 +158,17 @@ class PromptEncoder(nn.Module):
         if boxes is not None:
             box_embeddings = self._embed_boxes(boxes)
             sparse_embeddings = torch.cat([sparse_embeddings, box_embeddings], dim=1)
-
+        # masks = torch.ones([1, 1, 256, 256], dtype= torch.float, device=self._get_device())
+        # masks [1,1,256,256]
+        # breakpoint()
         if masks is not None:
             dense_embeddings = self._embed_masks(masks)
         else:
             dense_embeddings = self.no_mask_embed.weight.reshape(1, -1, 1, 1).expand(
                 bs, -1, self.image_embedding_size[0], self.image_embedding_size[1]
             )
-
+        # print(dense_embeddings.shape)
+        # breakpoint()
         return sparse_embeddings, dense_embeddings
 
 
@@ -211,4 +215,5 @@ class PositionEmbeddingRandom(nn.Module):
         coords = coords_input.clone()
         coords[:, :, 0] = coords[:, :, 0] / image_size[1]
         coords[:, :, 1] = coords[:, :, 1] / image_size[0]
+        # breakpoint()
         return self._pe_encoding(coords.to(torch.float))  # B x N x C

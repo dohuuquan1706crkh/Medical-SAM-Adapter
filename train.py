@@ -94,6 +94,7 @@ def main():
     best_tol = 1e4
     best_dice = 0.0
 
+    # for epoch in range(10):
     for epoch in range(settings.EPOCH):
 
         if epoch and epoch < 5:

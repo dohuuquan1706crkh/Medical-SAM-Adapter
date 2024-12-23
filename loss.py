@@ -82,21 +82,24 @@ def edl_loss(func, y, alpha, epoch_num, num_classes, annealing_step):
 
     kl_alpha = (alpha - 1) * (1 - y) + 1
     kl_div = annealing_coef * kl_divergence(kl_alpha, num_classes)
-    return A + kl_div
+    # return A + kl_div
+    return A
 
 
 
 def edl_digamma_loss(output, target, epoch_num, num_classes, annealing_step: int = 10):
-    alpha = exp_evidence(output)
+    alpha = relu_evidence(output)+1
+    # breakpoint()
     loss = torch.mean(
         edl_loss(torch.digamma, target, alpha, epoch_num, num_classes, annealing_step)
     )
+    # breakpoint()
     return loss
 
 
 class EvidentialLoss(nn.Module):
     def __init__(
-        self, logvar_eps=1e-4, resi_min=1e-4, resi_max=1e3, num_classes: int = 3
+        self, logvar_eps=1e-4, resi_min=1e-4, resi_max=1e3, num_classes: int = 2
     ) -> None:
         super(EvidentialLoss, self).__init__()
         self.logvar_eps = logvar_eps
@@ -105,7 +108,7 @@ class EvidentialLoss(nn.Module):
         self.loss_fnc = edl_digamma_loss
         self.num_classes = num_classes
 
-    def _adapt_shape(self, tensor, num_classes: int = 3):
+    def _adapt_shape(self, tensor, num_classes: int = 2):
         tensor = tensor.permute(0, 2, 3, 1)
         tensor = torch.reshape(tensor, (-1, num_classes))
         return tensor
@@ -113,7 +116,7 @@ class EvidentialLoss(nn.Module):
     def forward(self, mean: Tensor, target: Tensor, epoch: int):
         mean = self._adapt_shape(mean, num_classes=self.num_classes)
         target = self._adapt_shape(target, num_classes=self.num_classes)
-
+        # breakpoint()
         l = self.loss_fnc(mean, target, epoch, self.num_classes)
         # print("bbbbbbbbbbbbbbbbbbbbbbb")
         # print(l)
@@ -141,7 +144,7 @@ class RecLoss(nn.Module):
 
     def forward(
         self,
-        mean: Tensor,  ## before sm
+        pred: Tensor,  ## before sm
         mask: Tensor,  ## mask
         epoch: int = 0,
     ):
@@ -151,22 +154,10 @@ class RecLoss(nn.Module):
         ##target2 is the ground truth for the GenGauss loss
 
         ## need to convert from onehot [B, 3, W, H] -> [B, 1, W, H]
-        alpha = torch.exp(mean)
-        mean = mean.softmax(dim=1)
-
-        l = self.rec_loss_fnc(mean=mean, target=mask, epoch=epoch)
-        # print("ccccccccccccccccccccccc")
-        # print(l)
-        # sum = alpha.sum(dim=1)
-        # alpha_tilde = alpha/sum.unsqueeze(1)
-        # yvar = ((alpha_tilde*(1-alpha_tilde))/(sum+1).unsqueeze(1))
-        # resi = mean - mask
-        # print(resi.shape)
-        # print(yvar.shape)
-        # cov = (resi - resi.mean(dim=(-2,-1), keepdims = True))*(yvar - yvar.mean(dim=(-2,-1), keepdims = True))
-        # pearson_corr = cov.mean()/ (resi.std()*yvar.std())
-        # l = l2
-        # print(l1)
-        # print(l2)
-        # print(pearson_corr)
+        # pred = torch.relu(pred)
+        # breakpoint()
+        mask = F.one_hot(mask.long().squeeze(1), num_classes = 2).permute(0,3,1,2)
+        
+        l = self.rec_loss_fnc(mean=pred, target=mask, epoch=epoch)
         return l
+    

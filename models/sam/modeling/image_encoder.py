@@ -133,7 +133,7 @@ class ImageEncoderViT(nn.Module):
             x = x + new_abs_pos
         attn_maps = []
         for blk in self.blocks:
-            print('x_encoder',x.shape)
+            # print('x_encoder',x.shape)
             x, attn_map = blk(x)
             # print('encoder',attn_map.shape)
             attn_maps.append(attn_map)

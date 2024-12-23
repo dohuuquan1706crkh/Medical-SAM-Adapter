@@ -67,7 +67,7 @@ def main():
         new_state_dict = state_dict
 
     net.load_state_dict(new_state_dict)
-    # breakpoint()
+
     # args.path_helper = checkpoint['path_helper']
     # logger = create_logger(args.path_helper['log_path'])
     # print(f'=> loaded checkpoint {checkpoint_file} (epoch {start_epoch})')
@@ -91,10 +91,10 @@ def main():
     net.eval()
 
     if args.dataset != 'REFUGE':
-        tol, (eiou, edice) = function.validation_sam(args, nice_test_loader, start_epoch, net)
+        tol, (eiou, edice) = function.validation_sam_iterative(args, nice_test_loader, start_epoch, net)
         logger.info(f'Total score: {tol}, IOU: {eiou}, DICE: {edice} || @ epoch {start_epoch}.')
     else:
-        tol, (eiou_cup, eiou_disc, edice_cup, edice_disc) = function.validation_sam(args, nice_test_loader, start_epoch, net)
+        tol, (eiou_cup, eiou_disc, edice_cup, edice_disc) = function.validation_sam_iterative(args, nice_test_loader, start_epoch, net)
         logger.info(f'Total score: {tol}, IOU_CUP: {eiou_cup}, IOU_DISC: {eiou_disc}, DICE_CUP: {edice_cup}, DICE_DISC: {edice_disc} || @ epoch {start_epoch}.')
 
 

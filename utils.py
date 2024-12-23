@@ -962,7 +962,7 @@ def vis_image(imgs, pred_masks, gt_masks, entropy = None, mae=None, save_path = 
 
     if torch.max(pred_masks) > 1 or torch.min(pred_masks) < 0:
         pred_masks = torch.sigmoid(pred_masks)
-    # error_map = torch.abs(gt_masks - pred_masks)
+    error_map = torch.abs(gt_masks - pred_masks)
     
     
     if reverse == True:
@@ -1047,6 +1047,8 @@ def eval_seg(pred,true_mask_p,threshold):
     masks: [b,2,h,w]
     pred: [b,2,h,w]
     '''
+    # if torch.max(pred) > 1 or torch.min(pred) < 0:
+    #     pred = torch.sigmoid(pred)
     b, c, h, w = pred.size()
     if c == 2:
         iou_d, iou_c, disc_dice, cup_dice = 0,0,0,0
