@@ -411,6 +411,50 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
                             pred = preds.mean(dim=0)
                             preds = torch.sigmoid(preds)
                             pred_var = preds.var(dim=0)
+                        elif val_mode == 'ttdac':
+                            preds = []
+                            color_jitter = transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1)
+                            for _ in range(10):
+                                imgs_i = color_jitter(imgs)
+                                if args.distributed != 'none':
+                                    imge_i, encoder_attns = net.module.image_encoder(imgs_i)
+                                else: 
+                                    imge_i, encoder_attns = net.image_encoder(imgs_i)
+                                # pe_i = F.dropout(net.prompt_encoder.get_dense_pe(), p=0.3, training=True)
+                                # se_i = F.dropout(se, p=0.3, training=True)
+                                # de_i = F.dropout(de, p=0.3, training=True)
+                                pred, _, decoder_attns = net.mask_decoder(
+                                    image_embeddings=imge_i,
+                                    image_pe=net.prompt_encoder.get_dense_pe(), 
+                                    sparse_prompt_embeddings=se,
+                                    dense_prompt_embeddings=de, 
+                                    multimask_output=(args.multimask_output > 1),
+                                )
+                                preds.append(pred)
+                            preds = torch.stack(preds, dim=0)
+                            pred = preds.mean(dim=0)
+                            preds = torch.sigmoid(preds)
+                            pred_var = preds.var(dim=0)
+                        elif val_mode == 'ttdap':
+                            preds = []
+                            for _ in range(10):
+                                # imgs_i = color_jitter(imgs)
+                                imge_i = imge + torch.randn_like(imge) * 0.1
+                                # pe_i = F.dropout(net.prompt_encoder.get_dense_pe(), p=0.3, training=True)
+                                # se_i = F.dropout(se, p=0.3, training=True)
+                                # de_i = F.dropout(de, p=0.3, training=True)
+                                pred, _, decoder_attns = net.mask_decoder(
+                                    image_embeddings=imge_i,
+                                    image_pe=net.prompt_encoder.get_dense_pe(), 
+                                    sparse_prompt_embeddings=se,
+                                    dense_prompt_embeddings=de, 
+                                    multimask_output=(args.multimask_output > 1),
+                                )
+                                preds.append(pred)
+                            preds = torch.stack(preds, dim=0)
+                            pred = preds.mean(dim=0)
+                            preds = torch.sigmoid(preds)
+                            pred_var = preds.var(dim=0)
                         else:
                             if args.encoder != 'bayescap_decoder':
                                 pred, _, decoder_attns = net.mask_decoder(
@@ -462,7 +506,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
                         pred_ls.append(pred)
                         mask_ls.append(masks)
                         pred_var_ls.append(pred_var)
-                    if val_mode in ['mc_dropout', 'deep_ensemble']:
+                    if val_mode in ['mc_dropout', 'deep_ensemble', 'ttdac', 'ttdap']:
                         pred_var = F.interpolate(pred_var, size=(args.out_size, args.out_size))
                         pred_ls.append(pred)
                         mask_ls.append(masks)
@@ -500,7 +544,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
     if args.evl_chunk:
         n_val = n_val * (imgsw.size(-1) // evl_ch)
 
-    if val_mode in ['mc_dropout', 'deep_ensemble', 'bayescap']:
+    if val_mode in ['mc_dropout', 'deep_ensemble', 'bayescap', 'ttdac', 'ttdap']:
         # calculate correlation between predictions errors and uncertainty
         pred_ls = torch.cat(pred_ls, dim=0)
         pred_ls = (torch.sigmoid(pred_ls) > 0.5).float().squeeze(1)
