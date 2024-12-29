@@ -187,18 +187,18 @@ class GenGaussLoss(nn.Module):
 	def forward(
 		self, 
 		mean: Tensor, one_over_alpha: Tensor, beta: Tensor, target: Tensor
-	):
+    ):
 		one_over_alpha1 = one_over_alpha + self.alpha_eps
 		beta1 = beta + self.beta_eps
-
 		resi = torch.abs(mean - target)
-		# resi = torch.pow(resi*one_over_alpha1, beta1).clamp(min=self.resi_min, max=self.resi_max)
+		breakpoint()
 		resi = (resi*one_over_alpha1*beta1).clamp(min=self.resi_min, max=self.resi_max)
+
+        
 		## check if resi has nans
 		if torch.sum(resi != resi) > 0:
 			print('resi has nans!!')
 			return None
-		
 		log_one_over_alpha = torch.log(one_over_alpha1)
 		log_beta = torch.log(beta1)
 		lgamma_beta = torch.lgamma(torch.pow(beta1, -1))

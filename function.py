@@ -503,9 +503,12 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
                         # uncertainty
                         # pred_var = (1 / pred_a**2) * torch.lgamma(3 / pred_b).exp() / torch.lgamma(1 / pred_b).exp()
                         pred_var = (pred_a**2) * torch.lgamma(3 / pred_b).exp() / torch.lgamma(1 / pred_b).exp()
+                        # pred_var = (pred_a**2) * torch.lgamma(3 / pred_b) / torch.lgamma(1 / pred_b)
                         pred_ls.append(pred)
                         mask_ls.append(masks)
                         pred_var_ls.append(pred_var)
+                        loss_uncert = GenGaussLoss()
+                        loss = loss_uncert(pred, pred_a, pred_b, masks)
                     if val_mode in ['mc_dropout', 'deep_ensemble', 'ttdac', 'ttdap']:
                         pred_var = F.interpolate(pred_var, size=(args.out_size, args.out_size))
                         pred_ls.append(pred)

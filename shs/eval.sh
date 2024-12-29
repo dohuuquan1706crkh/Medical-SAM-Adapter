@@ -18,7 +18,7 @@ CUDA_VISIBLE_DEVICES=$1 python val.py -net sam -mod sam_adapt -exp_name msa_test
 
 # BayesCap
 # CUDA_VISIBLE_DEVICES=$1 python val.py -net sam -mod sam_adapt -encoder bayescap_decoder -exp_name msa_test_isic -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -weights ./checkpoint/sam/2024-12-20_09-09-17.852200/sam-95-best-40.pth -image_size 1024 -b 4 -dataset isic -data_path data/isic -seed $2 -val_mode bayescap -vis 50
-
+python val.py -net sam -mod sam_adapt -encoder bayescap_decoder -exp_name msa_test_isic -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -weights ./sam-bayes-cap.pth -image_size 1024 -b 2 -dataset isic -data_path data/isic -val_mode bayescap -vis 50
 # # TTDA color jitter
 # CUDA_VISIBLE_DEVICES=$1 python val.py -net sam -mod sam_adapt -exp_name msa_test_isic -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -weights ./checkpoint/sam/2024-12-01_03-02-49.137806/sam-99-best-45.pth -image_size 1024 -b 4 -dataset isic -data_path data/isic -seed $2 -val_mode ttdac -vis 50
 
