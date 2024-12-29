@@ -88,9 +88,10 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
         lossfunc1 = RecLoss()
         lossfunc2 = DiceCELoss()
         print("use evidential_Dice")
+    NUM_ACCUMULATION_STEPS = 2
 
     with tqdm(total=len(train_loader), desc=f'Epoch {epoch}', unit='img') as pbar:
-        for pack in train_loader:
+        for idx, pack in enumerate(train_loader):
             # torch.cuda.empty_cache()
             imgs = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             #print(imgs.shape)
@@ -237,15 +238,16 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 epoch_loss += loss.item()
             # breakpoint()
             # nn.utils.clip_grad_value_(net.parameters(), 0.1)
-            if args.mod == 'sam_adalora':
-                (loss+lora.compute_orth_regu(net, regu_weight=0.1)).backward()
+            # if args.mod == 'sam_adalora':
+            #     (loss+lora.compute_orth_regu(net, regu_weight=0.1)).backward()
+            #     optimizer.step()
+            #     rankallocator.update_and_mask(net, ind)
+            # else:
+            loss /= NUM_ACCUMULATION_STEPS
+            loss.backward()
+            if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)):
                 optimizer.step()
-                rankallocator.update_and_mask(net, ind)
-            else:
-                loss.backward()
-                optimizer.step()
-            
-            optimizer.zero_grad()
+                optimizer.zero_grad()
 
             '''vis images'''
             
@@ -260,12 +262,19 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                     vis_image(imgs,pred ,masks, None,save_path = os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
 
             pbar.update()
+            # break
 
     return loss
 
 def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
      # eval mode
     net.eval()
+    if args.val_mode == 'mc_dropout':
+        net.eval()  # Ensure the model is in eval mode
+        for module in net.modules():
+            if isinstance(module, torch.nn.Dropout):
+                print(f"Enabling dropout for {module}")
+                module.train()  # Enable dropout
 
     mask_type = torch.float32
     n_val = len(val_loader)  # the number of batch
@@ -370,36 +379,80 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
                             coords=coords_torch,
                             labels=labels_torch,
                         )
-
-                    if args.net == 'sam':
-                        pred, _, decoder_attns = net.mask_decoder(
-                            image_embeddings=imge,
-                            image_pe=net.prompt_encoder.get_dense_pe(), 
-                            sparse_prompt_embeddings=se,
-                            dense_prompt_embeddings=de, 
-                            multimask_output=(args.multimask_output > 1),
-                        )
-                    elif args.net == 'mobile_sam':
-                        pred, _ = net.mask_decoder(
-                            image_embeddings=imge,
-                            image_pe=net.prompt_encoder.get_dense_pe(), 
-                            sparse_prompt_embeddings=se,
-                            dense_prompt_embeddings=de, 
-                            multimask_output=(args.multimask_output > 1),
-                        )
-                    elif args.net == "efficient_sam":
-                        se = se.view(
-                            se.shape[0],
-                            1,
-                            se.shape[1],
-                            se.shape[2],
-                        )
-                        pred, _ = net.mask_decoder(
-                            image_embeddings=imge,
-                            image_pe=net.prompt_encoder.get_dense_pe(), 
-                            sparse_prompt_embeddings=se,
-                            multimask_output=(args.multimask_output > 1),
-                        )
+                    if args.val_mode == 'mc_dropout':
+                        preds=[]
+                        for _ in range(10):
+                            if args.net == 'sam':
+                                imge_i = F.dropout(imge, p=0.2, training=True)
+                                pe_i = F.dropout(net.prompt_encoder.get_dense_pe(), p=0.2, training=True)
+                                se_i = F.dropout(se, p=0.2, training=True)
+                                de_i = F.dropout(de, p=0.2, training=True)
+                                
+                                pred, _, decoder_attns = net.mask_decoder(
+                                    image_embeddings=imge_i,
+                                    image_pe=pe_i, 
+                                    sparse_prompt_embeddings=se_i,
+                                    dense_prompt_embeddings=de_i, 
+                                    multimask_output=(args.multimask_output > 1),
+                                )
+                            elif args.net == 'mobile_sam':
+                                pred, _ = net.mask_decoder(
+                                    image_embeddings=imge_i,
+                                    image_pe=pe_i, 
+                                    sparse_prompt_embeddings=se_i,
+                                    dense_prompt_embeddings=de_i, 
+                                    multimask_output=(args.multimask_output > 1),
+                                )
+                            elif args.net == "efficient_sam":
+                                se = se.view(
+                                    se.shape[0],
+                                    1,
+                                    se.shape[1],
+                                    se.shape[2],
+                                )
+                                pred, _ = net.mask_decoder(
+                                    image_embeddings=imge_i,
+                                    image_pe=pe_i, 
+                                    sparse_prompt_embeddings=se_i,
+                                    multimask_output=(args.multimask_output > 1),
+                                )
+                            # Resize to the ordered output size  
+                            preds.append(pred)  
+                        preds = torch.stack(preds, dim=0)
+                        pred = preds.mean(dim=0)
+                        preds = torch.sigmoid(preds)
+                        pred_var = preds.var(dim=0)
+                        # breakpoint()
+                    else:    
+                        if args.net == 'sam':
+                            pred, _, decoder_attns = net.mask_decoder(
+                                image_embeddings=imge,
+                                image_pe=net.prompt_encoder.get_dense_pe(), 
+                                sparse_prompt_embeddings=se,
+                                dense_prompt_embeddings=de, 
+                                multimask_output=(args.multimask_output > 1),
+                            )
+                        elif args.net == 'mobile_sam':
+                            pred, _ = net.mask_decoder(
+                                image_embeddings=imge,
+                                image_pe=net.prompt_encoder.get_dense_pe(), 
+                                sparse_prompt_embeddings=se,
+                                dense_prompt_embeddings=de, 
+                                multimask_output=(args.multimask_output > 1),
+                            )
+                        elif args.net == "efficient_sam":
+                            se = se.view(
+                                se.shape[0],
+                                1,
+                                se.shape[1],
+                                se.shape[2],
+                            )
+                            pred, _ = net.mask_decoder(
+                                image_embeddings=imge,
+                                image_pe=net.prompt_encoder.get_dense_pe(), 
+                                sparse_prompt_embeddings=se,
+                                multimask_output=(args.multimask_output > 1),
+                            )
                     # breakpoint()
                     # Resize to the ordered output size
                     #exitbreakpoint()
@@ -423,9 +476,12 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
                     if args.vis and ind % args.vis == 1:
                         # compute entropy map
                         #print("vis image")
-                        x = torch.sigmoid(pred)
-                        #x = x.view(pred.shape[0], pred.shape[1], pred.shape[2], pred.shape[3])
-                        x = -x*torch.log(x + 1e-8) - (1 - x) * torch.log(1 - x + 1e-8)
+                        if args.val_mode == 'mc_dropout':
+                            x = pred_var
+                        else:
+                            x = torch.sigmoid(pred)
+                            #x = x.view(pred.shape[0], pred.shape[1], pred.shape[2], pred.shape[3])
+                            x = -x*torch.log(x + 1e-8) - (1 - x) * torch.log(1 - x + 1e-8)
                         x = (x - x.amin(dim=(-1, -2), keepdim=True)) / (x.amax(dim=(-1, -2), keepdim=True) - x.amin(dim=(-1, -2), keepdim=True))
                         #print(entropy.shape)
                         x_ = mae(torch.sigmoid(pred), masks)
@@ -444,7 +500,7 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
             # break
     if args.evl_chunk:
         n_val = n_val * (imgsw.size(-1) // evl_ch)
-    if True:
+    if args.val_mode == 'normal':
         # calculate correlation between predictions errors and uncertainty
         pred_ls = torch.cat(pred_ls, dim=0)
         pred_sigmoid = (torch.sigmoid(pred_ls)).squeeze(1)
@@ -470,29 +526,47 @@ def validation_sam(args, val_loader, epoch, net: nn.Module, clean_dir=True):
         # 1. Confidence Histogram
         plt.figure(figsize=(10, 5))
         plt.yscale("log")
-        plt.hist(confidence_scores, bins=400, range=(0.5 , 1), alpha=0.7, color='blue', edgecolor='black')
+        plt.hist(confidence_scores, bins=40, range=(0.5 , 1), alpha=0.7, color='blue', edgecolor='black')
         plt.title("Confidence Histogram")
         plt.xlabel("Predicted Confidence")
         plt.ylabel("Frequency")
-        plt.savefig("plot/confidence_histogram+epoch" + str(epoch) +".png")
+        os.path.join(args.path_helper['sample_path'], 'confidence_histogram+epoch+' +str(epoch) + '.jpg')
+        plt.savefig(os.path.join(args.path_helper['sample_path'], 'confidence_histogram+epoch+' +str(epoch) + '.jpg'))
         plt.close()
 
         # 2. Reliability Diagram
         # Compute calibration curve
-        prob_true, prob_pred = calibration_curve(correct_predictions, confidence_scores, n_bins=800)
+        prob_true, prob_pred = calibration_curve(correct_predictions, confidence_scores, n_bins=80)
 
         plt.figure(figsize=(10, 5))
         plt.plot(prob_pred, prob_true, marker='o', label="Model")
-        plt.plot([0.51, 1], [0.51, 1], linestyle='--', color='black', label="Perfect Calibration")
+        plt.plot([0.5, 1], [0.5, 1], linestyle='--', color='black', label="Perfect Calibration")
         plt.title("Reliability Diagram_SAM")
         plt.xlabel("Mean Predicted Confidence")
         plt.ylabel("Fraction of Positives")
         plt.legend()
-        plt.savefig("plot/reliability_diagram_SAM+epoch" + str(epoch) +".png")
+        os.path.join(args.path_helper['sample_path'], 'reliability_diagram_SAM+epoch+' +str(epoch) + '.jpg')
+        plt.savefig(os.path.join(args.path_helper['sample_path'], 'reliability_diagram_SAM+epoch+' +str(epoch) + '.jpg'))
         plt.close()
 
-        print("Confidence histogram and reliability diagram saved as 'confidence_histogram_SAM.png' and 'reliability_diagram_SAM.png'.")
+        print("Confidence histogram and reliability diagram saved as 'confidence_histogram_SAM+epoch" + str(epoch) +".png' and 'reliability_diagram_SAM+epoch" + str(epoch) +".png'.")
+    if args.val_mode == 'mc_dropout':
+        # calculate correlation between predictions errors and uncertainty
+        pred_ls = torch.cat(pred_ls, dim=0)
+        pred_sigmoid = (torch.sigmoid(pred_ls)).squeeze(1)
+        pred_var = pred_var.flatten(start_dim=1)
+        preds = (pred_sigmoid > 0.5).float()
+        masks_ls = torch.cat(masks_ls, dim=0).squeeze(1)
+        
+        loss = (preds != masks_ls).float().flatten(start_dim=1)
+        # breakpoint()
 
+        cov = (loss - loss.mean(axis=1, keepdims=True)) * (pred_var - pred_var.mean(axis=1, keepdims=True))
+        pearson_corr = cov.mean(axis=1) / (loss.std(axis=1, unbiased=False) * pred_var.std(axis=1, unbiased=False) + 1e-8)
+        # breakpoint()
+        print(f"Average Pearson correlation: {pearson_corr.mean()}")
+        
+        
     return tot/ n_val , tuple([a/n_val for a in mix_res])
 
 def transform_prompt(coord,label,h,w):
