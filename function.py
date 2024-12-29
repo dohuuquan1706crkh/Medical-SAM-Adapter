@@ -84,9 +84,10 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
         print("use evidential")
     
     loss_uncert = GenGaussLoss()
+    NUM_ACCUMULATION_STEPS = 2
 
     with tqdm(total=len(train_loader), desc=f'Epoch {epoch}', unit='img') as pbar:
-        for pack in train_loader:
+        for idx, pack in enumerate(train_loader):
             # torch.cuda.empty_cache()
             imgs = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             #print(imgs.shape)
@@ -239,15 +240,20 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
 
             # nn.utils.clip_grad_value_(net.parameters(), 0.1)
             if args.mod == 'sam_adalora':
+                loss /= NUM_ACCUMULATION_STEPS
                 (loss+lora.compute_orth_regu(net, regu_weight=0.1)).backward()
-                optimizer.step()
-                rankallocator.update_and_mask(net, ind)
+                if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)):
+                    optimizer.step()
+                    optimizer.zero_grad()
+                    rankallocator.update_and_mask(net, ind)
             else:
+                loss /= NUM_ACCUMULATION_STEPS
                 loss.backward()
-                optimizer.step()
+                if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)):
+                    optimizer.step()
+                    optimizer.zero_grad()
+                
             
-            optimizer.zero_grad()
-
             '''vis images'''
             if vis:
                 if ind % vis == 0:
