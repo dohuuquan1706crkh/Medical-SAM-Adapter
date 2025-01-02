@@ -186,13 +186,19 @@ class GenGaussLoss(nn.Module):
 	
 	def forward(
 		self, 
-		mean: Tensor, one_over_alpha: Tensor, beta: Tensor, target: Tensor
+		pred: Tensor, one_over_alpha: Tensor, beta: Tensor, target: Tensor
     ):
 		one_over_alpha1 = one_over_alpha + self.alpha_eps
 		beta1 = beta + self.beta_eps
-		resi = torch.abs(mean - target)
-		breakpoint()
+		# regularizer = torch.abs(pred)
+		# regularizer_alpha = torch.abs(one_over_alpha)
+		# regularizer_beta = torch.abs(beta)
+		mean = torch.sigmoid(pred)
+		# resi = torch.abs(mean - target)
+		resi = mean*target + (1-mean)*(1-target)
+		# breakpoint()
 		resi = (resi*one_over_alpha1*beta1).clamp(min=self.resi_min, max=self.resi_max)
+		# pred_var = (pred_a**2) * torch.lgamma(3 / pred_b).exp().clamp(min= 1e-4, max=1e3) / torch.lgamma(1 / pred_b).exp().clamp(min= 1e-4, max=1e3)
 
         
 		## check if resi has nans
@@ -210,12 +216,50 @@ class GenGaussLoss(nn.Module):
 		if torch.sum(log_beta != log_beta) > 0:
 			print('log_beta has nan')
 		
+		# l = regularizer + regularizer_alpha + regularizer_beta + resi - log_one_over_alpha + lgamma_beta - log_beta
 		l = resi - log_one_over_alpha + lgamma_beta - log_beta
-
+  
 		if self.reduction == 'mean':
-			return l.mean()
+			l = l.mean()
 		elif self.reduction == 'sum':
-			return l.sum()
+			l = l.sum()
 		else:
 			print('Reduction not supported')
 			return None
+		return l
+
+
+
+
+
+class PCCLoss(nn.Module):
+	def __init__(
+		self, reduction='mean',
+		pred_unc_eps = 1e-4, 
+		resi_min = 1e-4, resi_max=1e3
+	) -> None:
+		super(PCCLoss, self).__init__()
+		self.reduction = reduction
+		self.pred_unc_eps = pred_unc_eps
+		self.resi_min = resi_min
+		self.resi_max = resi_max
+	
+	def forward(
+		self, 
+		pred: Tensor, pred_unc: Tensor,  target: Tensor
+    ):
+		pred_unc = pred_unc + self.pred_unc_eps
+		mean = torch.sigmoid(pred)
+		# resi = torch.abs(mean - target)
+		resi = -(torch.log(mean)*target + (torch.log(1-mean))*(1-target))
+		cov = (resi - resi.mean(dim=(-2,-1), keepdims = True))*(pred_unc - pred_unc.mean(dim=(-2,-1), keepdims = True))
+		l = resi +(1 - cov/(resi.std()*pred_unc.std())) 
+  
+		if self.reduction == 'mean':
+			l = l.mean()
+		elif self.reduction == 'sum':
+			l = l.sum()
+		else:
+			print('Reduction not supported')
+			return None
+		return l

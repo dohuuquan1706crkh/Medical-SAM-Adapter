@@ -132,6 +132,7 @@ def main():
                 sd = net.module.state_dict()
             else:
                 sd = net.state_dict()
+            # breakpoint()
 
             if edice > best_dice:
                 best_dice = edice
@@ -155,7 +156,6 @@ def main():
                 'path_helper': args.path_helper,
             }, checkpoint_path, 
             filename=checkpoint_name.format(net=args.net, epoch=epoch, type='last', seed=args.seed))
-
     writer.close()
 
 

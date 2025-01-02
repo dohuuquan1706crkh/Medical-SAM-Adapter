@@ -83,7 +83,7 @@ def get_network(args, net, use_gpu=True, gpu_device = 0, distribution = True):
     if net == 'sam':
         from models.sam import SamPredictor, sam_model_registry
         from models.sam.utils.transforms import ResizeLongestSide
-        options = ['default','vit_b','vit_l','vit_h', 'bayescap_decoder']
+        options = ['default','vit_b','vit_l','vit_h', 'bayescap_decoder', 'sure_decoder']
         if args.encoder not in options:
             raise ValueError("Invalid encoder option. Please choose from: {}".format(options))
         else:
@@ -1028,6 +1028,7 @@ def vis_image(imgs, pred_masks, gt_masks, entropy = None, mae=None, save_path = 
         # breakpoint()
         # compose = torch.cat((imgs[:row_num,:,:,:],pred_disc[:row_num,:,:,:], pred_cup[:row_num,:,:,:], gt_disc[:row_num,:,:,:], gt_cup[:row_num,:,:,:]),0)
         compose = torch.cat(tup,0)
+        # breakpoint()
         vutils.save_image(compose, fp = save_path, nrow = row_num, padding = 10)
         if entropy is not None:
           entropy = entropy.expand(b,3,h,w)
