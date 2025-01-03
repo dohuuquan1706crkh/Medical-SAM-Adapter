@@ -28,7 +28,7 @@ from tensorboardX import SummaryWriter
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from loss import RecLoss, GenGaussLoss
+from loss import RecLoss, GenGaussLoss, PCCLoss
 import cfg
 import models.sam.utils.transforms as samtrans
 import pytorch_ssim
@@ -86,10 +86,13 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
         lossfunc = RecLoss()
         print("use evidential")
     
-    loss_uncert = GenGaussLoss()
-
+    loss_uncert1 = GenGaussLoss()
+    loss_uncert2 = PCCLoss()
+    NUM_ACCUMULATION_STEPS = 2
+    if args.encoder == 'bayescap_decoder':
+        print("use bayes_cap decoder")
     with tqdm(total=len(train_loader), desc=f'Epoch {epoch}', unit='img') as pbar:
-        for pack in train_loader:
+        for idx, pack in enumerate(train_loader):
             # torch.cuda.empty_cache()
             imgs = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             #print(imgs.shape)
@@ -181,20 +184,28 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                     )
                     
             if args.net == 'sam':
-                if args.encoder != 'bayescap_decoder':
-                    pred, _, _ = net.module.mask_decoder(
-                        image_embeddings=imge, 
-                        image_pe=net.module.prompt_encoder.get_dense_pe(), 
-                        sparse_prompt_embeddings=se, 
-                        dense_prompt_embeddings=de, 
-                        multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
-                else:
+                if args.encoder == 'bayescap_decoder':
                     pred, pred_a, pred_b, _, _ = net.module.mask_decoder(
                         image_embeddings=imge, 
                         image_pe=net.module.prompt_encoder.get_dense_pe(), 
                         sparse_prompt_embeddings=se, 
                         dense_prompt_embeddings=de, 
                         multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
+                elif args.encoder == 'sure_decoder':    
+                    pred, pred_var, _, _ = net.module.mask_decoder(
+                        image_embeddings=imge, 
+                        image_pe=net.module.prompt_encoder.get_dense_pe(), 
+                        sparse_prompt_embeddings=se, 
+                        dense_prompt_embeddings=de, 
+                        multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
+                else:    
+                    pred, _, _ = net.module.mask_decoder(
+                        image_embeddings=imge, 
+                        image_pe=net.module.prompt_encoder.get_dense_pe(), 
+                        sparse_prompt_embeddings=se, 
+                        dense_prompt_embeddings=de, 
+                        multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
+                
             elif args.net == 'mobile_sam':
                 pred, _ = net.mask_decoder(
                     image_embeddings=imge,
@@ -234,7 +245,11 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 loss = lossfunc(pred, masks)
                 # breakpoint()
                 if args.encoder == 'bayescap_decoder':
-                    loss_u = loss_uncert(pred, pred_a, pred_b, masks)
+                    loss_u = loss_uncert1(pred, pred_a, pred_b, masks)
+                    # import IPython; IPython.embed(); exit(1)
+                    loss = loss + loss_u * 1e-3
+                elif args.encoder == 'sure_decoder':
+                    loss_u = loss_uncert2(pred, pred_var, masks)
                     # import IPython; IPython.embed(); exit(1)
                     loss = loss + loss_u * 1e-3
 
@@ -243,28 +258,34 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
 
             # nn.utils.clip_grad_value_(net.parameters(), 0.1)
             if args.mod == 'sam_adalora':
+                loss /= NUM_ACCUMULATION_STEPS
                 (loss+lora.compute_orth_regu(net, regu_weight=0.1)).backward()
-                optimizer.step()
+                if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)):
+                    optimizer.step()
+                    optimizer.zero_grad()
                 rankallocator.update_and_mask(net, ind)
             else:
+                loss /= NUM_ACCUMULATION_STEPS
                 loss.backward()
-                optimizer.step()
+                if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)):
+                    optimizer.step()
+                    optimizer.zero_grad()
+                
             
-            optimizer.zero_grad()
-
             '''vis images'''
             if vis:
                 if ind % vis == 0:
                     namecat = 'Train'
                     for na in name[:2]:
                         namecat = namecat + na.split('/')[-1].split('.')[0] + '+'
-                    vis_image(imgs,pred,masks, None, os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
+                    vis_image(imgs,pred,masks, None, save_path = os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
 
             pbar.update()
+            # break
 
     return loss
 
-def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='normal'):
+def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.val_mode):
     if val_mode == 'mc_dropout':
         net.eval()  # Ensure the model is in eval mode
         for module in net.modules():
@@ -293,6 +314,8 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
         lossfunc = criterion_G
 
     pred_ls = []
+    pred_ls_a = []
+    pred_ls_b = []
     mask_ls = []
     pred_var_ls = []
     with tqdm(total=n_val, desc='Validation round', unit='batch', leave=False) as pbar:
@@ -471,22 +494,28 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
                             preds = torch.sigmoid(preds)
                             pred_var = preds.var(dim=0)
                         else:
-                            if args.encoder != 'bayescap_decoder':
-                                pred, _, decoder_attns = net.mask_decoder(
-                                    image_embeddings=imge,
-                                    image_pe=net.prompt_encoder.get_dense_pe(), 
-                                    sparse_prompt_embeddings=se,
+                            if args.encoder == 'bayescap_decoder':
+                                pred, pred_a, pred_b, _, _ = net.module.mask_decoder(
+                                    image_embeddings=imge, 
+                                    image_pe=net.module.prompt_encoder.get_dense_pe(), 
+                                    sparse_prompt_embeddings=se, 
                                     dense_prompt_embeddings=de, 
-                                    multimask_output=(args.multimask_output > 1),
-                                )
-                            else:
-                                pred, pred_a, pred_b, _, decoder_attns = net.mask_decoder(
-                                    image_embeddings=imge,
-                                    image_pe=net.prompt_encoder.get_dense_pe(), 
-                                    sparse_prompt_embeddings=se,
+                                    multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
+                            elif args.encoder == 'sure_decoder':    
+                                pred, pred_var, _, _ = net.module.mask_decoder(
+                                    image_embeddings=imge, 
+                                    image_pe=net.module.prompt_encoder.get_dense_pe(), 
+                                    sparse_prompt_embeddings=se, 
                                     dense_prompt_embeddings=de, 
-                                    multimask_output=(args.multimask_output > 1),
-                                )
+                                    multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
+                            else:    
+                                pred, _, _ = net.module.mask_decoder(
+                                    image_embeddings=imge, 
+                                    image_pe=net.module.prompt_encoder.get_dense_pe(), 
+                                    sparse_prompt_embeddings=se, 
+                                    dense_prompt_embeddings=de, 
+                                    multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
+                            
                     elif args.net == 'mobile_sam':
                         pred, _ = net.mask_decoder(
                             image_embeddings=imge,
@@ -513,20 +542,40 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
                     #exitbreakpoint()
                     pred = F.interpolate(pred,size=(args.out_size,args.out_size))
                     if args.encoder == 'bayescap_decoder':
-                        pred_a = F.interpolate(pred_a,size=(args.out_size,args.out_size))
-                        pred_b = F.interpolate(pred_b,size=(args.out_size,args.out_size))
+                        pred_a = F.interpolate(pred_a,size=(args.out_size,args.out_size)).clamp(min= 1e-4, max=1e3)
+                        pred_b = F.interpolate(pred_b,size=(args.out_size,args.out_size)).clamp(min= 1e-4, max=1e3)
+                        one_over_pred_a = 1 / pred_a
                         # uncertainty
                         # pred_var = (1 / pred_a**2) * torch.lgamma(3 / pred_b).exp() / torch.lgamma(1 / pred_b).exp()
-                        pred_var = (pred_a**2) * torch.lgamma(3 / pred_b).exp() / torch.lgamma(1 / pred_b).exp()
+                        pred_var = (one_over_pred_a**2) * torch.lgamma(3 / pred_b).exp().clamp(min= 1e-4, max=1e3) / torch.lgamma(1 / pred_b).exp().clamp(min= 1e-4, max=1e3)
+                        # pred_var = (pred_a**2) * torch.lgamma(3 / pred_b) / torch.lgamma(1 / pred_b)
+                        pred_ls_a.append(pred_a)
+                        pred_ls_b.append(pred_b)
                         pred_ls.append(pred)
                         mask_ls.append(masks)
                         pred_var_ls.append(pred_var)
+                        loss_uncert = GenGaussLoss()
+                        loss = loss_uncert(pred, pred_a, pred_b, masks)
+                        # breakpoint()
+                    elif args.encoder == 'sure_decoder':
+                        pred, pred_var, _, _ = net.module.mask_decoder(
+                            image_embeddings=imge, 
+                            image_pe=net.module.prompt_encoder.get_dense_pe(), 
+                            sparse_prompt_embeddings=se, 
+                            dense_prompt_embeddings=de, 
+                            multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
+                        pred_ls.append(pred)
+                        mask_ls.append(masks)
+                        pred_var_ls.append(pred_var)
+                        loss_uncert = PCCLoss()
+                        loss = loss_uncert(pred, pred_var, masks)
+                        
                     if val_mode in ['mc_dropout', 'deep_ensemble', 'ttdac', 'ttdap']:
                         pred_var = F.interpolate(pred_var, size=(args.out_size, args.out_size))
                         pred_ls.append(pred)
                         mask_ls.append(masks)
                         pred_var_ls.append(pred_var)
-
+                    # breakpoint()
                     tot += lossfunc(pred, masks).item()
 
                     '''vis images'''
@@ -546,23 +595,32 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
                         for na in name[:2]:
                             img_name = na.split('/')[-1].split('.')[0]
                             namecat = namecat + img_name + '+'
-                        
-                        vis_image(imgs,pred, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
-                        vis_image(imgs,pred_var, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '_var.jpg'), reverse=False, points=showp)
+                        pred_var_normalize = (pred_var- pred_var.amin(dim=(-1, -2), keepdim=True)) / (pred_var.amax(dim=(-1, -2), keepdim=True) - pred_var.amin(dim=(-1, -2), keepdim=True))
+                        vis_image(imgs, pred, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
+                        vis_image(imgs, pred_var_normalize, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '_var.jpg'), reverse=False, points=showp)
                     # breakpoint()
 
                     temp = eval_seg(pred, masks, threshold)
                     mix_res = tuple([sum(a) for a in zip(mix_res, temp)])
-
+                
             pbar.update()
-
+            # break
     if args.evl_chunk:
         n_val = n_val * (imgsw.size(-1) // evl_ch)
-
-    if val_mode in ['mc_dropout', 'deep_ensemble', 'bayescap', 'ttdac', 'ttdap']:
+    # breakpoint()
+    if val_mode in ['mc_dropout', 'deep_ensemble', 'bayescap', 'ttdac', 'ttdap', "SURE"]:
+        # breakpoint()
         # calculate correlation between predictions errors and uncertainty
-        pred_ls = torch.cat(pred_ls, dim=0)
-        pred_ls = (torch.sigmoid(pred_ls) > 0.5).float().squeeze(1)
+        if val_mode == "bayescap":
+            pred_ls_a = torch.cat(pred_ls_a, dim=0).float().squeeze(1)
+            pred_ls_b = torch.cat(pred_ls_b, dim=0).float().squeeze(1)
+            pred_ls_a = torch.cat(pred_ls_a, dim=0).float().squeeze(1)
+            pred_ls_b = torch.cat(pred_ls_b, dim=0).float().squeeze(1)
+        
+        pred_ls = torch.cat(pred_ls, dim=0).float().squeeze(1)
+        pred_logit = pred_ls
+        pred_sigmoid = torch.sigmoid(pred_ls)
+        pred_ls = (pred_sigmoid > 0.5)
         mask_ls = torch.cat(mask_ls, dim=0).squeeze(1)
         loss = (pred_ls != mask_ls).float().flatten(start_dim=1)
         # pred_ls = torch.cat([1 - pred_ls, pred_ls], dim=1)
@@ -574,7 +632,74 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
         cov = (loss - loss.mean(axis=1, keepdims=True)) * (pred_var_ls - pred_var_ls.mean(axis=1, keepdims=True))
         pearson_corr = cov.mean(axis=1) / (loss.std(axis=1, unbiased=False) * pred_var_ls.std(axis=1, unbiased=False) + 1e-8)
         print(f"Average Pearson correlation: {pearson_corr.mean()}")
+        # breakpoint()
+        preds_prob = torch.where(pred_sigmoid > 0.5, pred_sigmoid, 1 - pred_sigmoid)
+        correct_predictions = (1 - loss).bool()
 
+        # Convert tensors to numpy arrays
+        confidence_scores = preds_prob.flatten().cpu().numpy()
+        correct_predictions = correct_predictions.flatten().cpu().numpy()
+
+        # 1. Confidence Histogram
+        plt.figure(figsize=(10, 5))
+        plt.yscale("log")
+        plt.hist(confidence_scores, bins=40, range=(0.5 , 1), alpha=0.7, color='blue', edgecolor='black')
+        plt.title("Confidence Histogram")
+        plt.xlabel("Predicted Confidence")
+        plt.ylabel("Frequency")
+        os.path.join(args.path_helper['sample_path'], 'confidence_histogram+epoch+' +str(epoch) + '.jpg')
+        plt.savefig(os.path.join(args.path_helper['sample_path'], 'confidence_histogram+epoch+' +str(epoch) + '.jpg'))
+        plt.close()
+        
+        pred_logit = pred_logit.flatten().cpu().numpy()
+        # 2. Logit Histogram 
+        plt.figure(figsize=(10, 5))
+        plt.yscale("log")
+        plt.hist(pred_logit, bins=40, alpha=0.7, color='blue', edgecolor='black')
+        plt.title("Logit Histogram")
+        plt.xlabel("Predicted Logit")
+        plt.ylabel("Frequency")
+        os.path.join(args.path_helper['sample_path'], 'logit_histogram+epoch+' +str(epoch) + '.jpg')
+        plt.savefig(os.path.join(args.path_helper['sample_path'], 'logit_histogram+epoch+' +str(epoch) + '.jpg'))
+        plt.close() 
+        
+        pred_var_ls = pred_var_ls.flatten().cpu().numpy()
+        # 3. Var Histogram 
+        plt.figure(figsize=(10, 5))
+        plt.yscale("log")
+        plt.hist(pred_var_ls, bins=40, alpha=0.7, color='blue', edgecolor='black')
+        plt.title("Var Histogram")
+        plt.xlabel("Predicted Var")
+        plt.ylabel("Frequency")
+        os.path.join(args.path_helper['sample_path'], 'Var_histogram+epoch+' +str(epoch) + '.jpg')
+        plt.savefig(os.path.join(args.path_helper['sample_path'], 'Var_histogram+epoch+' +str(epoch) + '.jpg'))
+        plt.close() 
+        
+        if val_mode == "bayescap":
+            pred_ls_a = pred_ls_a.flatten().cpu().numpy()
+            # 4. alpha Histogram 
+            plt.figure(figsize=(10, 5))
+            plt.yscale("log")
+            plt.hist(pred_ls_a, bins=40, alpha=0.7, color='blue', edgecolor='black')
+            plt.title("alpha Histogram")
+            plt.xlabel("Predicted alpha")
+            plt.ylabel("Frequency")
+            os.path.join(args.path_helper['sample_path'], 'alpha_histogram+epoch+' +str(epoch) + '.jpg')
+            plt.savefig(os.path.join(args.path_helper['sample_path'], 'alpha_histogram+epoch+' +str(epoch) + '.jpg'))
+            plt.close() 
+            
+            pred_ls_b = pred_ls_b.flatten().cpu().numpy()
+            # 5. beta Histogram 
+            plt.figure(figsize=(10, 5))
+            plt.yscale("log")
+            plt.hist(pred_ls_a, bins=40, alpha=0.7, color='blue', edgecolor='black')
+            plt.title("beta Histogram")
+            plt.xlabel("Predicted beta")
+            plt.ylabel("Frequency")
+            os.path.join(args.path_helper['sample_path'], 'beta+epoch+' +str(epoch) + '.jpg')
+            plt.savefig(os.path.join(args.path_helper['sample_path'], 'beta_histogram+epoch+' +str(epoch) + '.jpg'))
+            plt.close() 
+        
     return tot/ n_val , tuple([a/n_val for a in mix_res])
 
 def transform_prompt(coord,label,h,w):
