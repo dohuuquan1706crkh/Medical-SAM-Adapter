@@ -86,7 +86,8 @@ class AdapterBlock(nn.Module):
             xd = self.norm1(xd)
             dh, _ = closest_numbers(depth)
             xd = rearrange(xd, 'bhw (dh dw) c -> bhw dh dw c', dh= dh)
-            xd = self.Depth_Adapter(self.attn(xd))
+            xd, attn = self.attn(xd)
+            xd = self.Depth_Adapter(xd)
             xd = rearrange(xd, '(b n) dh dw c ->(b dh dw) n c', n= hh * ww )
 
         x = self.norm1(x)

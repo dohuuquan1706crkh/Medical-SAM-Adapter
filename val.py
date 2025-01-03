@@ -39,7 +39,10 @@ def main():
     #if args.dataset == 'refuge' or args.dataset == 'refuge2':
     #    args.data_path = '../dataset'
 
-    GPUdevice = torch.device('cuda', args.gpu_device)
+    if args.gpu:
+        GPUdevice = torch.device('cuda', args.gpu_device)
+    else:
+        GPUdevice = torch.device('cpu')
 
     if args.val_mode == 'deep_ensemble':
         assert len(args.weights_ensemble) > 0
@@ -53,7 +56,10 @@ def main():
             assert os.path.exists(weights)
             checkpoint_file = os.path.join(weights)
             assert os.path.exists(checkpoint_file)
-            loc = 'cuda:{}'.format(args.gpu_device)
+            if args.gpu:
+                loc = 'cuda:{}'.format(args.gpu_device)
+            else:
+                loc = 'cpu'
             checkpoint = torch.load(checkpoint_file, map_location=loc)
             start_epoch = checkpoint['epoch']
             best_tol = checkpoint['best_tol']
@@ -82,7 +88,10 @@ def main():
         assert os.path.exists(args.weights)
         checkpoint_file = os.path.join(args.weights)
         assert os.path.exists(checkpoint_file)
-        loc = 'cuda:{}'.format(args.gpu_device)
+        if args.gpu:
+                loc = 'cuda:{}'.format(args.gpu_device)
+        else:
+            loc = 'cpu'
         checkpoint = torch.load(checkpoint_file, map_location=loc)
         start_epoch = checkpoint['epoch']
         best_tol = checkpoint['best_tol']

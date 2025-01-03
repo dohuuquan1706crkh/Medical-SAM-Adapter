@@ -44,8 +44,11 @@ mae = nn.L1Loss(reduction="none")
 
 args = cfg.parse_args()
 
-GPUdevice = torch.device('cuda', args.gpu_device)
-pos_weight = torch.ones([1]).cuda(device=GPUdevice)*2
+if args.gpu:
+    GPUdevice = torch.device('cuda', args.gpu_device)
+else:
+    GPUdevice = torch.device('cpu')
+pos_weight = torch.ones([1]).to(device=GPUdevice)*2
 criterion_G = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 seed = torch.randint(1,11,(args.b,7))
 
@@ -91,15 +94,16 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
             imgs = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             #print(imgs.shape)
             masks = pack['label'].to(dtype = torch.float32, device = GPUdevice)
-            #print(masks.shape)
-            # for k,v in pack['image_meta_dict'].items():
-            #     print(k)
+            
             if 'pt' not in pack:
                 imgs, pt, masks = generate_click_prompt(imgs, masks)
             else:
                 pt = pack['pt']
                 point_labels = pack['p_label']
-            name = pack['image_meta_dict']['filename_or_obj']
+            if 'image_meta_dict' in pack.keys():
+                name = pack['image_meta_dict']['filename_or_obj']
+            else:
+                name = 'test__'
 
             if args.thd:
                 imgs, pt, masks = generate_click_prompt(imgs, masks)
@@ -267,6 +271,8 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
             if isinstance(module, torch.nn.Dropout):
                 print(f"Enabling dropout for {module}")
                 module.train()  # Enable dropout
+    
+    # net = net.to('cpu') # Move the model to the CPU
 
     mask_type = torch.float32
     n_val = len(val_loader)  # the number of batch
@@ -275,7 +281,10 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
     tot = 0
     hard = 0
     threshold = (0.1, 0.3, 0.5, 0.7, 0.9)
-    GPUdevice = torch.device('cuda:' + str(args.gpu_device))
+    if args.gpu:
+        GPUdevice = torch.device('cuda', args.gpu_device)
+    else:
+        GPUdevice = torch.device('cpu')
     device = GPUdevice
 
     if args.thd:
@@ -291,6 +300,8 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
             # breakpoint()
             imgsw = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             masksw = pack['label'].to(dtype = torch.float32, device = GPUdevice)
+            # imgsw = pack['image'].to(dtype = torch.float32, device = 'cpu')
+            # masksw = pack['label'].to(dtype = torch.float32, device = 'cpu')
             # for k,v in pack['image_meta_dict'].items():
             #     print(k)
             if 'pt' not in pack or args.thd:
@@ -298,7 +309,10 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
             else:
                 ptw = pack['pt']
                 point_labels = pack['p_label']
-            name = pack['image_meta_dict']['filename_or_obj']
+            if 'image_meta_dict' in pack.keys():
+                name = pack['image_meta_dict']['filename_or_obj']
+            else:
+                name = 'test__'
             
             buoy = 0
             if args.evl_chunk:
@@ -347,6 +361,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
                     true_mask_ave = (true_mask_ave > 0.5).float()
                     #true_mask_ave = cons_tensor(true_mask_ave)
                 imgs = imgs.to(dtype = mask_type,device = GPUdevice)
+                # imgs = imgs.to(dtype = mask_type,device = 'cpu')
                 
                 '''test'''
                 with torch.no_grad():
@@ -356,7 +371,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode='norma
                         else: 
                             imge, encoder_attns = net.image_encoder(imgs)
                         if args.net == 'sam' or args.net == 'mobile_sam':
-                            se, de = net.module.prompt_encoder(points=pt, boxes=None, masks=None) if args.distributed != 'none' else net.prompt_encoder(points=pt, boxes=None, masks=None) 
+                            se, de = net.module.prompt_encoder(points=pt, boxes=None, masks=None) if args.distributed != 'none' else net.prompt_encoder(points=pt, boxes=None, masks=None)
                         elif args.net == "efficient_sam":
                             coords_torch,labels_torch = transform_prompt(coords_torch,labels_torch,h,w)
                             se = net.prompt_encoder(

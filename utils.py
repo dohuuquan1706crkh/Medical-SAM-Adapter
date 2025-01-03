@@ -62,7 +62,10 @@ from models.discriminator import Discriminator
 # from siren_pytorch import SirenNet, SirenWrapper
 
 args = cfg.parse_args()
-device = torch.device('cuda', args.gpu_device)
+if args.gpu:
+    device = torch.device('cuda', args.gpu_device)
+else:
+    device = torch.device('cpu')
 
 '''preparation of domain loss'''
 # cnn = vgg19(pretrained=True).features.to(device).eval()
@@ -194,6 +197,16 @@ def get_decath_loader(args):
                 mode=("bilinear", "nearest"),
             ),
             EnsureTyped(keys=["image", "label"], device=device, track_meta=True),
+            RandCropByPosNegLabeld(
+                keys=["image", "label"],
+                label_key="label",
+                spatial_size=(args.roi_size, args.roi_size, args.chunk),
+                pos=1,
+                neg=1,
+                num_samples=args.num_sample,
+                image_key="image",
+                image_threshold=0,
+            ),
         ]
     )
 
@@ -214,7 +227,7 @@ def get_decath_loader(args):
     )
     train_loader = ThreadDataLoader(train_ds, num_workers=0, batch_size=args.b, shuffle=True)
     val_ds = CacheDataset(
-        data=val_files, transform=val_transforms, cache_num=2, cache_rate=1.0, num_workers=0
+        data=val_files, transform=val_transforms, cache_num=24, cache_rate=1.0, num_workers=8
     )
     val_loader = ThreadDataLoader(val_ds, num_workers=0, batch_size=1)
 
