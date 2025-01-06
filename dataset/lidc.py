@@ -90,7 +90,7 @@ class LIDC(Dataset):
             'label': mask,
             'p_label':point_label,
             'pt':pt,
-            'box': box,
+            # 'box': box,
             'image_meta_dict':image_meta_dict,
         }
 

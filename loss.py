@@ -243,17 +243,19 @@ class PCCLoss(nn.Module):
 		self.pred_unc_eps = pred_unc_eps
 		self.resi_min = resi_min
 		self.resi_max = resi_max
-	
+		self.std_min = 1e-5
+		self.min_mean = 1e-5
+		self.max_mean = 1 - 1e-5
 	def forward(
 		self, 
 		pred: Tensor, pred_unc: Tensor,  target: Tensor
     ):
 		pred_unc = pred_unc + self.pred_unc_eps
-		mean = torch.sigmoid(pred)
+		mean = torch.sigmoid(pred).clamp(min=self.min_mean, max=self.max_mean)
 		# resi = torch.abs(mean - target)
 		resi = -(torch.log(mean)*target + (torch.log(1-mean))*(1-target))
 		cov = (resi - resi.mean(dim=(-2,-1), keepdims = True))*(pred_unc - pred_unc.mean(dim=(-2,-1), keepdims = True))
-		l = resi +(1 - cov/(resi.std()*pred_unc.std())) 
+		l = resi +(1 - cov/((resi.std()*pred_unc.std()).clamp(min=self.std_min))) 
   
 		if self.reduction == 'mean':
 			l = l.mean()

@@ -65,8 +65,8 @@ def get_dataloader(args):
 
     elif args.dataset == 'LIDC':
         '''LIDC data'''
-        # dataset = LIDC(data_path = args.data_path)
-        dataset = MyLIDC(args, data_path = args.data_path,transform = transform_train, transform_msk= transform_train_seg)
+        dataset = LIDC(data_path = args.data_path)
+        # dataset = MyLIDC(args, data_path = args.data_path,transform = transform_train, transform_msk= transform_train_seg)
 
         dataset_size = len(dataset)
         indices = list(range(dataset_size))

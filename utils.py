@@ -951,7 +951,7 @@ def hook_model(model, image_f):
 
     return hook
 
-def vis_image(imgs, pred_masks, gt_masks, entropy = None, mae=None, save_path = None, reverse = False, points = None, boxes = None):
+def vis_image(imgs, pred_masks, gt_masks, entropy = None, mae=None, pred_var_normalize = None, save_path = None, reverse = False, points = None, boxes = None):
     
     b,c,h,w = pred_masks.size()
     #print(c)
@@ -1037,6 +1037,10 @@ def vis_image(imgs, pred_masks, gt_masks, entropy = None, mae=None, save_path = 
           #print(entropy.shape)
           mae = mae.expand(b,3,h,w)
           vutils.save_image(mae, fp = save_path[:-4] + "_mae.jpg", nrow = row_num, padding = 10)
+        if pred_var_normalize is not None:
+          #print(entropy.shape)
+          pred_var_normalize = pred_var_normalize.expand(b,3,h,w)
+          vutils.save_image(pred_var_normalize, fp = save_path[:-4] + "_pred_var_normalize.jpg", nrow = row_num, padding = 10)
 
     return
 
