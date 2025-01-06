@@ -4,6 +4,7 @@ import argparse
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-seed', type=int, default=42, help='seeding number')
+    parser.add_argument('-plot_histogram', type=bool, default=True, help='plot histogram')
     parser.add_argument('-net', type=str, default='sam', help='net type')
     parser.add_argument('-baseline', type=str, default='unet', help='baseline net type')
     parser.add_argument('-encoder', type=str, default='default', help='encoder type')
@@ -11,7 +12,7 @@ def parse_args():
     parser.add_argument('-mod', type=str, default='sam_adpt', help='mod type:seg,cls,val_ad')
     parser.add_argument('-exp_name', default='msa_test_isic', type=str, help='net type')
     parser.add_argument('-type', type=str, default='map', help='condition type:ave,rand,rand_map')
-    parser.add_argument('-vis', type=int, default=50, help='visualization')
+    parser.add_argument('-vis', type=int, default=100, help='visualization')
     parser.add_argument('-reverse', type=bool, default=False, help='adversary reverse')
     parser.add_argument('-pretrain', type=bool, default=False, help='adversary reverse')
     parser.add_argument('-val_freq',type=int,default=5,help='interval between each validation')
@@ -46,7 +47,7 @@ def parse_args():
     parser.add_argument('-num_sample', type=int, default=4 , help='sample pos and neg')
     parser.add_argument('-roi_size', type=int, default=96 , help='resolution of roi')
     parser.add_argument('-evl_chunk', type=int, default=None , help='evaluation chunk')
-    parser.add_argument('-loss', type=str, default="BCEWithLogitsLoss", help='loss')
+    parser.add_argument('-loss', type=str, default="DiceCELoss", help='loss')    #DiceCELoss, BCEWithLogitsLoss
     parser.add_argument('-mid_dim', type=int, default=None , help='middle dim of adapter or the rank of lora matrix')
     parser.add_argument('-multimask_output', type=int, default=1 , help='the number of masks output for multi-class segmentation, set 2 for REFUGE dataset.')
     parser.add_argument(
