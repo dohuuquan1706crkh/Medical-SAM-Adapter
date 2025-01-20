@@ -15,7 +15,7 @@ def parse_args():
     parser.add_argument('-vis', type=int, default=100, help='visualization')
     parser.add_argument('-reverse', type=bool, default=False, help='adversary reverse')
     parser.add_argument('-pretrain', type=bool, default=False, help='adversary reverse')
-    parser.add_argument('-val_freq',type=int,default=5,help='interval between each validation')
+    parser.add_argument('-val_freq',type=int,default=1,help='interval between each validation')
     parser.add_argument('-val_mode',type=str,default='normal',help='Eval mode: normal, mc_dropout, deep_ensemble')
     parser.add_argument('-gpu', type=bool, default=True, help='use gpu or not')
     parser.add_argument('-gpu_device', type=int, default=1, help='use which gpu')
@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument('-num_sample', type=int, default=4 , help='sample pos and neg')
     parser.add_argument('-roi_size', type=int, default=96 , help='resolution of roi')
     parser.add_argument('-evl_chunk', type=int, default=None , help='evaluation chunk')
-    parser.add_argument('-loss', type=str, default="DiceCELoss", help='loss')    #DiceCELoss, BCEWithLogitsLoss
+    parser.add_argument('-loss', type=str, default="BCEWithLogitsLoss", help='loss')    #DiceCELoss, BCEWithLogitsLoss
     parser.add_argument('-mid_dim', type=int, default=None , help='middle dim of adapter or the rank of lora matrix')
     parser.add_argument('-multimask_output', type=int, default=1 , help='the number of masks output for multi-class segmentation, set 2 for REFUGE dataset.')
     parser.add_argument(

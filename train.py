@@ -35,7 +35,9 @@ from conf import settings
 from dataset import *
 from utils import *
 import random
+import wandb
 
+# Initialize a W&B run
 def seed_everything(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -76,6 +78,7 @@ def main():
         print(f'=> loaded checkpoint {checkpoint_file} (epoch {start_epoch})')
 
     args.path_helper = set_log_dir('logs', args.exp_name)
+    wandb.init(project="SAM_Adapt", name=args.path_helper['log_path'])
     logger = create_logger(args.path_helper['log_path'])
     logger.info(args)
 
@@ -103,60 +106,70 @@ def main():
     best_dice = 0.0
 
     for epoch in range(settings.EPOCH):
-        if epoch and epoch < 5:
-            if args.dataset != 'REFUGE':
-                tol, (eiou, edice) = function.validation_sam(args, nice_test_loader, epoch, net, writer)
-                logger.info(f'Total score: {tol}, IOU: {eiou}, DICE: {edice} || @ epoch {epoch}.')
-            else:
-                tol, (eiou_cup, eiou_disc, edice_cup, edice_disc) = function.validation_sam(args, nice_test_loader, epoch, net, writer)
-                logger.info(f'Total score: {tol}, IOU_CUP: {eiou_cup}, IOU_DISC: {eiou_disc}, DICE_CUP: {edice_cup}, DICE_DISC: {edice_disc} || @ epoch {epoch}.')
+        # if epoch and epoch < 5:
+        #     if args.dataset != 'REFUGE':
+        #         tol, (eiou, edice) = function.validation_sam(args, nice_test_loader, epoch, net, writer)
+        #         logger.info(f'Total score: {tol}, IOU: {eiou}, DICE: {edice} || @ epoch {epoch}.')
+        #         # wandb.log({'Total score': {tol}, 'IOU': {eiou}, 'DICE': {edice}, 'epoch': {epoch}})
+        #     else:
+        #         tol, (eiou_cup, eiou_disc, edice_cup, edice_disc) = function.validation_sam(args, nice_test_loader, epoch, net, writer)
+        #         logger.info(f'Total score: {tol}, IOU_CUP: {eiou_cup}, IOU_DISC: {eiou_disc}, DICE_CUP: {edice_cup}, DICE_DISC: {edice_disc} || @ epoch {epoch}.')
+        #         # wandb.log({'Total score': {tol}, 'IOU_CUP': {eiou_cup}, 'IOU_DISC': {eiou_disc}, 'DICE_CUP': {edice_cup}, 'DICE_DISC': {edice_disc}, 'epoch': {epoch}})
 
         net.train()
         time_start = time.time()
         loss = function.train_sam(args, net, optimizer, nice_train_loader, epoch, writer, vis = args.vis)
         logger.info(f'Train loss: {loss} || @ epoch {epoch}.')
+        # wandb.log({"epoch": epoch, "train_loss": loss})
         time_end = time.time()
         print('time_for_training ', time_end - time_start)
-
+        # wandb.log({'time_for_training ': {time_end - time_start}})
         net.eval()
-        if epoch and (epoch % args.val_freq == 0 or epoch == settings.EPOCH-1):
-            if args.dataset != 'REFUGE':
-                tol, (eiou, edice) = function.validation_sam(args, nice_test_loader, epoch, net, writer)
-                logger.info(f'Total score: {tol}, IOU: {eiou}, DICE: {edice} || @ epoch {epoch}.')
-            else:
-                tol, (eiou_cup, eiou_disc, edice_cup, edice_disc) = function.validation_sam(args, nice_test_loader, epoch, net, writer)
-                edice = (edice_cup + edice_disc) / 2.0
-                logger.info(f'Total score: {tol}, IOU_CUP: {eiou_cup}, IOU_DISC: {eiou_disc}, DICE_CUP: {edice_cup}, DICE_DISC: {edice_disc}, DICE: {edice} || @ epoch {epoch}.')
-                
-            if args.distributed != 'none':
-                sd = net.module.state_dict()
-            else:
-                sd = net.state_dict()
-            # breakpoint()
+        # if (epoch % args.val_freq == 0):
+        if args.dataset != 'REFUGE':
+            tol, corr, uce, (eiou, edice) = function.validation_sam(args, nice_test_loader, epoch, net, writer)
+            # logger.info(f'Total score: {tol}, IOU: {eiou}, DICE: {edice} || @ epoch {epoch}.')
+            # wandb.log({'Total score': {tol}, 'IOU': {eiou}, 'DICE': {edice}, 'epoch': {epoch}})
+            wandb.log({'eval/loss': tol, 'eval/IOU': eiou.item(), 'eval/DICE': edice, 'eval/corr': corr, 'eval/uce': uce, 'epoch': epoch})
+            
+        else:
+            tol, corr, uce, (eiou_cup, eiou_disc, edice_cup, edice_disc) = function.validation_sam(args, nice_test_loader, epoch, net, writer)
+            edice = (edice_cup + edice_disc) / 2.0
+            # logger.info(f'Total score: {tol}, IOU_CUP: {eiou_cup}, IOU_DISC: {eiou_disc}, DICE_CUP: {edice_cup}, DICE_DISC: {edice_disc}, DICE: {edice} || @ epoch {epoch}.')
+        
+            # wandb.log({'Total score': {tol}, 'IOU_CUP': {eiou_cup}, 'IOU_DISC': {eiou_disc}, 'DICE_CUP': {edice_cup}, 'DICE_DISC': {edice_disc}, 'DICE': {edice}, 'epoch': {epoch}})
+        # breakpoint()
+        if args.distributed != 'none':
+            sd = net.module.state_dict()
+        else:
+            sd = net.state_dict()
+        
 
-            if edice > best_dice:
-                best_dice = edice
+        if edice > best_dice:
+            best_dice = edice
 
-                save_checkpoint({
-                'epoch': epoch + 1,
-                'model': args.net,
-                'state_dict': sd,
-                'optimizer': optimizer.state_dict(),
-                'best_tol': best_dice,
-                'path_helper': args.path_helper,
-            }, checkpoint_path, 
-            filename=checkpoint_name.format(net=args.net, epoch=epoch, type='best', seed=args.seed))
-            else:
-                save_checkpoint({
-                'epoch': epoch + 1,
-                'model': args.net,
-                'state_dict': sd,
-                'optimizer': optimizer.state_dict(),
-                'best_tol': best_dice,
-                'path_helper': args.path_helper,
-            }, checkpoint_path, 
-            filename=checkpoint_name.format(net=args.net, epoch=epoch, type='last', seed=args.seed))
+            save_checkpoint({
+            'epoch': epoch + 1,
+            'model': args.net,
+            'state_dict': sd,
+            'optimizer': optimizer.state_dict(),
+            'best_tol': best_dice,
+            'path_helper': args.path_helper,
+        }, checkpoint_path, 
+        filename=checkpoint_name.format(net=args.net, epoch=epoch, type='best', seed=args.seed))
+        else:
+            save_checkpoint({
+            'epoch': epoch + 1,
+            'model': args.net,
+            'state_dict': sd,
+            'optimizer': optimizer.state_dict(),
+            'best_tol': best_dice,
+            'path_helper': args.path_helper,
+        }, checkpoint_path, 
+        filename=checkpoint_name.format(net=args.net, epoch=epoch, type='last', seed=args.seed))
     writer.close()
+    wandb.finish()
+
 
 
 if __name__ == '__main__':

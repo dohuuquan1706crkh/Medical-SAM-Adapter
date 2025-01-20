@@ -246,6 +246,8 @@ class PCCLoss(nn.Module):
 		self.std_min = 1e-5
 		self.min_mean = 1e-5
 		self.max_mean = 1 - 1e-5
+		self.pred_unc_mean = None
+		
 	def forward(
 		self, 
 		pred: Tensor, pred_unc: Tensor,  target: Tensor
@@ -253,10 +255,19 @@ class PCCLoss(nn.Module):
 		pred_unc = pred_unc + self.pred_unc_eps
 		mean = torch.sigmoid(pred).clamp(min=self.min_mean, max=self.max_mean)
 		# resi = torch.abs(mean - target)
-		resi = -(torch.log(mean)*target + (torch.log(1-mean))*(1-target))
-		cov = (resi - resi.mean(dim=(-2,-1), keepdims = True))*(pred_unc - pred_unc.mean(dim=(-2,-1), keepdims = True))
-		l = resi +(1 - cov/((resi.std()*pred_unc.std()).clamp(min=self.std_min))) 
-  
+		with torch.no_grad():
+			if self.pred_unc_mean == None:
+				self.pred_unc_mean = pred_unc.mean(dim=(-2,-1), keepdims = True)
+			else:
+				self.pred_unc_mean = 0.9*self.pred_unc_mean + pred_unc.mean(dim=(-2,-1), keepdims = True)*0.1
+		# breakpoint
+		# resi = -(torch.log(mean)*target + (torch.log(1-mean))*(1-target))
+		resi = abs((mean > 0.5).float() - target)
+		# cov = (resi - resi.mean(dim=(-2,-1), keepdims = True))*(pred_unc - pred_unc.mean(dim=(-2,-1), keepdims = True))
+		cov = (resi - resi.mean(dim=(-2,-1), keepdims = True))*(pred_unc - self.pred_unc_mean)
+		# l = resi +(1 - cov/((resi.std()*pred_unc.std()).clamp(min=self.std_min))) 
+		l = (1 - cov/((resi.std()*pred_unc.std()).clamp(min=self.std_min)))
+		# print(pred_unc.mean())
 		if self.reduction == 'mean':
 			l = l.mean()
 		elif self.reduction == 'sum':
@@ -264,4 +275,7 @@ class PCCLoss(nn.Module):
 		else:
 			print('Reduction not supported')
 			return None
+		if l != l:
+			print('nan')
+			breakpoint()
 		return l

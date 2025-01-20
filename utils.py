@@ -1030,9 +1030,9 @@ def vis_image(imgs, pred_masks, gt_masks, entropy = None, mae=None, pred_var_nor
         compose = torch.cat(tup,0)
         # breakpoint()
         vutils.save_image(compose, fp = save_path, nrow = row_num, padding = 10)
-        if entropy is not None:
-          entropy = entropy.expand(b,3,h,w)
-          vutils.save_image(entropy, fp = save_path[:-4] + "_entropy.jpg", nrow = row_num, padding = 10)
+        # if entropy is not None:
+        #   entropy = entropy.expand(b,3,h,w)
+        #   vutils.save_image(entropy, fp = save_path[:-4] + "_entropy.jpg", nrow = row_num, padding = 10)
         if mae is not None:
           #print(entropy.shape)
           mae = mae.expand(b,3,h,w)
@@ -1197,8 +1197,11 @@ def generate_click_prompt(img, msk, pt_label = 1):
     # return: prompt, prompt mask
     pt_list = []
     msk_list = []
-    b, c, h, w, d = msk.size()
-    msk = msk[:,0,:,:,:]
+    if len(msk.size()) == 4:
+        b, h, w, d = msk.size()
+    else:
+        b, c, h, w, d = msk.size()
+        msk = msk[:,0,:,:,:]
     for i in range(d):
         pt_list_s = []
         msk_list_s = []
