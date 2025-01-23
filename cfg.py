@@ -18,7 +18,7 @@ def parse_args():
     parser.add_argument('-val_freq',type=int,default=1,help='interval between each validation')
     parser.add_argument('-val_mode',type=str,default='normal',help='Eval mode: normal, mc_dropout, deep_ensemble')
     parser.add_argument('-gpu', type=bool, default=True, help='use gpu or not')
-    parser.add_argument('-gpu_device', type=int, default=1, help='use which gpu')
+    parser.add_argument('-gpu_device', type=int, default=0, help='use which gpu')
     parser.add_argument('-sim_gpu', type=int, default=0, help='split sim to this gpu')
     parser.add_argument('-epoch_ini', type=int, default=1, help='start epoch')
     parser.add_argument('-image_size', type=int, default=256, help='image_size')

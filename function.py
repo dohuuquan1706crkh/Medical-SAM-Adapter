@@ -73,8 +73,8 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     accumulated_loss = 0.0
     optimizer.zero_grad()
     # lambda_u = 0.001
-    lambda_u = epoch / 1000
-    # lambda_u = 1 / 100
+    # lambda_u = epoch / 100
+    lambda_u = 1 / 100
     epoch_loss = 0
     GPUdevice = torch.device('cuda:' + str(args.gpu_device))
 
@@ -103,6 +103,8 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
             imgs = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             #print(imgs.shape)
             masks = pack['label'].to(dtype = torch.float32, device = GPUdevice)
+            imgs = torchvision.transforms.Resize((args.image_size,args.image_size))(imgs)
+            masks = torchvision.transforms.Resize((args.out_size,args.out_size))(masks)
             #print(masks.shape)
             # for k,v in pack['image_meta_dict'].items():
             #     print(k)
@@ -343,6 +345,8 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
             # breakpoint()
             imgsw = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             masksw = pack['label'].to(dtype = torch.float32, device = GPUdevice)
+            imgsw = torchvision.transforms.Resize((args.image_size,args.image_size))(imgsw)
+            masksw = torchvision.transforms.Resize((args.out_size,args.out_size))(masksw)
             # for k,v in pack['image_meta_dict'].items():
             #     print(k)
             if 'pt' not in pack or args.thd:
