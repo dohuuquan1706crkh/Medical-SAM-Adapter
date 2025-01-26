@@ -4,11 +4,14 @@
 # echo "Seed $2"
 # CUDA_VISIBLE_DEVICES=$1 python train.py -net sam -mod sam_adapt -exp_name msa_test_isic -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -image_size 1024 -b 4 -dataset isic -data_path data/isic -seed $2
 
-# # bayescap
-# echo "Seed $2"
-# CUDA_VISIBLE_DEVICES=$1 python train.py -net sam -encoder bayescap_decoder -mod sam_adapt -exp_name msa_test_isic -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -image_size 1024 -b 4 -dataset isic -data_path data/isic -seed $2
+# bayescap
+echo "Seed $2"
+CUDA_VISIBLE_DEVICES=$1 python train.py -net sam -encoder bayescap_decoder -mod sam_adapt -exp_name msa_test_isic \
+ -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth \
+ -pretrain ./checkpoint/sam/2024-12-01_03-02-33.863709/sam-80-best-44.pth \
+ -image_size 1024 -b 4 -dataset isic -data_path data/isic -seed $2 -gpu True
 
 ## BTCV dataset
 # normal
-echo "Seed $2"
-CUDA_VISIBLE_DEVICES=$1 python train.py -net sam -mod sam_adapt -exp_name msa-3d-sam-btcv -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -image_size 1024 -b 2 -dataset decathlon -thd True -chunk 2 -data_path data/ -num_sample 1 -seed $2 
+# echo "Seed $2"
+# CUDA_VISIBLE_DEVICES=$1 python train.py -net sam -mod sam_adapt -exp_name msa-3d-sam-btcv -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -image_size 1024 -b 2 -dataset decathlon -thd True -chunk 2 -data_path data/ -num_sample 1 -seed $2 

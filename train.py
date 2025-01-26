@@ -52,8 +52,9 @@ def main():
     net = get_network(args, args.net, use_gpu=args.gpu, gpu_device=GPUdevice, distribution = args.distributed)
     if args.pretrain:
         weights = torch.load(args.pretrain)
-        net.load_state_dict(weights,strict=False)
-
+        net.load_state_dict(weights['state_dict'],strict=False)
+        print('=> loaded pre-trained model {}'.format(args.pretrain))
+        
     optimizer = optim.Adam(net.parameters(), lr=args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5) #learning rate decay
 
@@ -111,7 +112,14 @@ def main():
         #         tol, (eiou_cup, eiou_disc, edice_cup, edice_disc) = function.validation_sam(args, nice_test_loader, epoch, net, writer)
         #         logger.info(f'Total score: {tol}, IOU_CUP: {eiou_cup}, IOU_DISC: {eiou_disc}, DICE_CUP: {edice_cup}, DICE_DISC: {edice_disc} || @ epoch {epoch}.')
 
-        net.train()
+        # net.train()
+        if args.encoder == 'bayescap_decoder':
+            for param in net.parameters():
+                param.requires_grad = False
+            for param in net.mask_decoder.bayescap.parameters(): # only train bayescap
+                param.requires_grad = True
+        else:
+            net.train()
         time_start = time.time()
         loss = function.train_sam(args, net, optimizer, nice_train_loader, epoch, writer, vis = args.vis)
         logger.info(f'Train loss: {loss} || @ epoch {epoch}.')
@@ -159,7 +167,7 @@ def main():
             'best_tol': best_dice,
             'path_helper': args.path_helper,
         }, checkpoint_path, 
-        filename=checkpoint_name.format(net=args.net, epoch=epoch, type='last', seed=args.seed))
+        filename=checkpoint_name.format(net=args.net, epoch=0, type='last', seed=args.seed))
 
     writer.close()
 

@@ -16,8 +16,8 @@ echo "Seed $2"
 # -image_size 1024 -b 4 -dataset isic -data_path data/isic -seed $2 -val_mode deep_ensemble -vis 50
 
 # BayesCap
-# CUDA_VISIBLE_DEVICES=$1 python val.py -net sam -mod sam_adapt -encoder bayescap_decoder -exp_name msa_test_isic -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -weights ./checkpoint/sam/2024-12-20_09-09-17.852200/sam-95-best-40.pth -image_size 1024 -b 4 -dataset isic -data_path data/isic -seed $2 -val_mode bayescap -vis 50
-python val.py -net sam -mod sam_adapt -encoder bayescap_decoder -exp_name msa_test_isic -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -weights ./sam-bayes-cap.pth -image_size 1024 -b 2 -dataset isic -data_path data/isic -val_mode bayescap -vis 50
+CUDA_VISIBLE_DEVICES=$1 python val.py -net sam -mod sam_adapt -encoder bayescap_decoder -exp_name msa_test_isic -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -weights ./checkpoint/sam/2025-01-24_14-21-25.484357/sam-99-last-40.pth -image_size 1024 -b 1 -dataset isic -data_path data/isic -seed $2 -val_mode bayescap -vis 50 -gpu True
+# python val.py -net sam -mod sam_adapt -encoder bayescap_decoder -exp_name msa_test_isic -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -weights ./sam-bayes-cap.pth -image_size 1024 -b 2 -dataset isic -data_path data/isic -val_mode bayescap -vis 50
 # # TTDA color jitter
 # CUDA_VISIBLE_DEVICES=$1 python val.py -net sam -mod sam_adapt -exp_name msa_test_isic -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -weights ./checkpoint/sam/2024-12-01_03-02-49.137806/sam-99-best-45.pth -image_size 1024 -b 4 -dataset isic -data_path data/isic -seed $2 -val_mode ttdac -vis 50
 
@@ -26,7 +26,7 @@ python val.py -net sam -mod sam_adapt -encoder bayescap_decoder -exp_name msa_te
 
 ### BTCV dataset
 # Normal
-CUDA_VISIBLE_DEVICES=$1 python val.py -net sam -mod sam_adapt -exp_name msa-3d-sam-btcv -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -weights ./checkpoint/sam/2025-01-02_03-29-56.420726/sam-99-last-40.pth -image_size 1024 -b 1 -dataset decathlon -data_path data/ -thd True -seed $2 -val_mode normal -num_sample 1 -chunk 2 -gpu True
+# CUDA_VISIBLE_DEVICES=$1 python val.py -net sam -mod sam_adapt -exp_name msa-3d-sam-btcv -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -weights ./checkpoint/sam/2025-01-02_03-29-56.420726/sam-99-last-40.pth -image_size 1024 -b 1 -dataset decathlon -data_path data/ -thd True -seed $2 -val_mode normal -num_sample 1 -chunk 2 -gpu True
 
 # MC-Dropout
 # CUDA_VISIBLE_DEVICES=$1 python val.py -net sam -mod sam_adapt -exp_name msa-3d-sam-btcv -sam_ckpt ./checkpoint/sam/sam_vit_b_01ec64.pth -weights ./checkpoint/sam/2025-01-02_03-29-56.420726/sam-99-last-40.pth -image_size 1024 -b 1 -dataset decathlon -data_path data/ -thd True -seed $2 -val_mode mc_dropout -vis 50 -num_sample 1 -chunk 2 -gpu True

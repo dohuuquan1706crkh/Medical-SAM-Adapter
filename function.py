@@ -70,7 +70,6 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     epoch_loss = 0
     ind = 0
     # train mode
-    net.train()
     optimizer.zero_grad()
 
     epoch_loss = 0
@@ -149,13 +148,15 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                         if "Adapter" not in n:
                             value.requires_grad = False
                         else:
-                            value.requires_grad = True
+                            if args.encoder != 'bayescap_decoder':
+                                value.requires_grad = True
                 else:
                     for n, value in net.image_encoder.named_parameters():
                         if "Adapter" not in n:
                             value.requires_grad = False
                         else:
-                            value.requires_grad = True
+                            if args.encoder != 'bayescap_decoder':
+                                value.requires_grad = True
             elif args.mod == 'sam_lora' or args.mod == 'sam_adalora':
                 from models.common import loralib as lora
                 lora.mark_only_lora_as_trainable(net.image_encoder)
@@ -168,7 +169,8 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                     )
             else:
                 for n, value in net.image_encoder.named_parameters(): 
-                    value.requires_grad = True
+                    if args.encoder != 'bayescap_decoder':
+                        value.requires_grad = True
             if args.distributed != 'none':
                 imge, _ = net.module.image_encoder(imgs)   
             else:     
@@ -185,7 +187,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                     
             if args.net == 'sam':
                 if args.encoder == 'bayescap_decoder':
-                    pred, pred_a, pred_b, _, _ = net.module.mask_decoder(
+                    pred, pred_mu, pred_a, pred_b, _, _ = net.module.mask_decoder(
                         image_embeddings=imge, 
                         image_pe=net.module.prompt_encoder.get_dense_pe(), 
                         sparse_prompt_embeddings=se, 
@@ -198,7 +200,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                         sparse_prompt_embeddings=se, 
                         dense_prompt_embeddings=de, 
                         multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
-                else:    
+                else:
                     pred, _, _ = net.module.mask_decoder(
                         image_embeddings=imge, 
                         image_pe=net.module.prompt_encoder.get_dense_pe(), 
@@ -231,6 +233,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
             # Resize to the ordered output size
             pred = F.interpolate(pred,size=(args.out_size,args.out_size))
             if args.encoder == 'bayescap_decoder':
+                pred_mu = F.interpolate(pred_mu,size=(args.out_size,args.out_size)) 
                 pred_a = F.interpolate(pred_a,size=(args.out_size,args.out_size))
                 pred_b = F.interpolate(pred_b,size=(args.out_size,args.out_size))
 
@@ -245,9 +248,9 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 loss = lossfunc(pred, masks)
                 # breakpoint()
                 if args.encoder == 'bayescap_decoder':
-                    loss_u = loss_uncert1(pred, pred_a, pred_b, masks)
-                    # import IPython; IPython.embed(); exit(1)
-                    loss = loss + loss_u * 1e-3
+                    loss_u = loss_uncert1(pred, pred_mu, pred_a, pred_b, masks)
+                    # loss = loss + loss_u * 1e-3
+                    loss = loss_u
                 elif args.encoder == 'sure_decoder':
                     loss_u = loss_uncert2(pred, pred_var, masks)
                     # import IPython; IPython.embed(); exit(1)
@@ -271,7 +274,6 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                     optimizer.step()
                     optimizer.zero_grad()
                 
-            
             '''vis images'''
             if vis:
                 if ind % vis == 0:
@@ -495,7 +497,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                             pred_var = preds.var(dim=0)
                         else:
                             if args.encoder == 'bayescap_decoder':
-                                pred, pred_a, pred_b, _, _ = net.module.mask_decoder(
+                                pred, pred_mu, pred_a, pred_b, _, _ = net.module.mask_decoder(
                                     image_embeddings=imge, 
                                     image_pe=net.module.prompt_encoder.get_dense_pe(), 
                                     sparse_prompt_embeddings=se, 
@@ -542,6 +544,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                     #exitbreakpoint()
                     pred = F.interpolate(pred,size=(args.out_size,args.out_size))
                     if args.encoder == 'bayescap_decoder':
+                        pred_mu = F.interpolate(pred_mu,size=(args.out_size,args.out_size))
                         pred_a = F.interpolate(pred_a,size=(args.out_size,args.out_size)).clamp(min= 1e-4, max=1e3)
                         pred_b = F.interpolate(pred_b,size=(args.out_size,args.out_size)).clamp(min= 1e-4, max=1e3)
                         one_over_pred_a = 1 / pred_a
@@ -555,7 +558,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                         mask_ls.append(masks)
                         pred_var_ls.append(pred_var)
                         loss_uncert = GenGaussLoss()
-                        loss = loss_uncert(pred, pred_a, pred_b, masks)
+                        loss = loss_uncert(pred, pred_mu, pred_a, pred_b, masks)
                         # breakpoint()
                     elif args.encoder == 'sure_decoder':
                         pred, pred_var, _, _ = net.module.mask_decoder(
@@ -595,9 +598,10 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                         for na in name[:2]:
                             img_name = na.split('/')[-1].split('.')[0]
                             namecat = namecat + img_name + '+'
-                        pred_var_normalize = (pred_var- pred_var.amin(dim=(-1, -2), keepdim=True)) / (pred_var.amax(dim=(-1, -2), keepdim=True) - pred_var.amin(dim=(-1, -2), keepdim=True))
                         vis_image(imgs, pred, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
-                        vis_image(imgs, pred_var_normalize, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '_var.jpg'), reverse=False, points=showp)
+                        if locals().get('pred_var') is not None:
+                            pred_var_normalize = (pred_var- pred_var.amin(dim=(-1, -2), keepdim=True)) / (pred_var.amax(dim=(-1, -2), keepdim=True) - pred_var.amin(dim=(-1, -2), keepdim=True))
+                            vis_image(imgs, pred_var_normalize, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '_var.jpg'), reverse=False, points=showp)
                     # breakpoint()
 
                     temp = eval_seg(pred, masks, threshold)
@@ -614,9 +618,6 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
         if val_mode == "bayescap":
             pred_ls_a = torch.cat(pred_ls_a, dim=0).float().squeeze(1)
             pred_ls_b = torch.cat(pred_ls_b, dim=0).float().squeeze(1)
-            pred_ls_a = torch.cat(pred_ls_a, dim=0).float().squeeze(1)
-            pred_ls_b = torch.cat(pred_ls_b, dim=0).float().squeeze(1)
-        
         pred_ls = torch.cat(pred_ls, dim=0).float().squeeze(1)
         pred_logit = pred_ls
         pred_sigmoid = torch.sigmoid(pred_ls)

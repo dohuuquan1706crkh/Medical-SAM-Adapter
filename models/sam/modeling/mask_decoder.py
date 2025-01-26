@@ -148,6 +148,124 @@ class MaskDecoder(nn.Module):
         iou_pred = self.iou_prediction_head(iou_token_out)
         return masks, iou_pred, attns
 
+class ResidualConvBlock(nn.Module):
+	"""Implements residual conv function.
+
+	Args:
+		channels (int): Number of channels in the input image.
+	"""
+
+	def __init__(self, channels: int) -> None:
+		super(ResidualConvBlock, self).__init__()
+		self.rcb = nn.Sequential(
+			nn.Conv2d(channels, channels, (3, 3), (1, 1), (1, 1), bias=False),
+			nn.BatchNorm2d(channels),
+			nn.PReLU(),
+			nn.Conv2d(channels, channels, (3, 3), (1, 1), (1, 1), bias=False),
+			nn.BatchNorm2d(channels),
+		)
+
+	def forward(self, x: torch.Tensor) -> torch.Tensor:
+		identity = x
+
+		out = self.rcb(x)
+		out = torch.add(out, identity)
+
+		return out
+
+class BayesCap(nn.Module):
+	def __init__(self, in_channels=3, out_channels=3) -> None:
+		super(BayesCap, self).__init__()
+		# First conv layer.
+		self.conv_block1 = nn.Sequential(
+			nn.Conv2d(
+				in_channels, 64, 
+				kernel_size=9, stride=1, padding=4
+			),
+			nn.PReLU(),
+		)
+
+		# Features trunk blocks.
+		trunk = []
+		for _ in range(16):
+			trunk.append(ResidualConvBlock(64))
+		self.trunk = nn.Sequential(*trunk)
+
+		# Second conv layer.
+		self.conv_block2 = nn.Sequential(
+			nn.Conv2d(
+				64, 64, 
+				kernel_size=3, stride=1, padding=1, bias=False
+			),
+			nn.BatchNorm2d(64),
+		)
+
+		# Output layer.
+		self.conv_block3_mu = nn.Conv2d(
+			64, out_channels=out_channels, 
+			kernel_size=9, stride=1, padding=4
+		)
+		self.conv_block3_alpha = nn.Sequential(
+			nn.Conv2d(
+				64, 64, 
+				kernel_size=9, stride=1, padding=4
+			),
+			nn.PReLU(),
+			nn.Conv2d(
+				64, 64, 
+				kernel_size=9, stride=1, padding=4
+			),
+			nn.PReLU(),
+			nn.Conv2d(
+				64, 1, 
+				kernel_size=9, stride=1, padding=4
+			),
+			nn.ReLU(),
+		)
+		self.conv_block3_beta = nn.Sequential(
+			nn.Conv2d(
+				64, 64, 
+				kernel_size=9, stride=1, padding=4
+			),
+			nn.PReLU(),
+			nn.Conv2d(
+				64, 64, 
+				kernel_size=9, stride=1, padding=4
+			),
+			nn.PReLU(),
+			nn.Conv2d(
+				64, 1, 
+				kernel_size=9, stride=1, padding=4
+			),
+			nn.ReLU(),
+		)
+
+		# Initialize neural network weights.
+		self._initialize_weights()
+
+	def forward(self, x: torch.Tensor) -> torch.Tensor:
+		return self._forward_impl(x)
+
+	# Support torch.script function.
+	def _forward_impl(self, x: torch.Tensor) -> torch.Tensor:
+		out1 = self.conv_block1(x)
+		out = self.trunk(out1)
+		out2 = self.conv_block2(out)
+		out = out1 + out2
+		out_mu = self.conv_block3_mu(out)
+		out_alpha = self.conv_block3_alpha(out)
+		out_beta = self.conv_block3_beta(out)
+		return out_mu, out_alpha, out_beta
+
+	def _initialize_weights(self) -> None:
+		for module in self.modules():
+			if isinstance(module, nn.Conv2d):
+				nn.init.kaiming_normal_(module.weight)
+				if module.bias is not None:
+					nn.init.constant_(module.bias, 0)
+			elif isinstance(module, nn.BatchNorm2d):
+				nn.init.constant_(module.weight, 1)
+
 class BayescapDecoder(nn.Module):
     def __init__(
         self,
@@ -197,21 +315,7 @@ class BayescapDecoder(nn.Module):
                 for i in range(self.num_mask_tokens)
             ]
         )
-
-        self.alpha_hypernetworks_mlps = nn.ModuleList(
-            [
-                MLP(transformer_dim, transformer_dim, transformer_dim // 8, 3)
-                for i in range(self.num_mask_tokens)
-            ]
-        )
-
-        self.beta_hypernetworks_mlps = nn.ModuleList(
-            [
-                MLP(transformer_dim, transformer_dim, transformer_dim // 8, 3)
-                for i in range(self.num_mask_tokens)
-            ]
-        )
-
+        self.bayescap = BayesCap(in_channels=1, out_channels=1)
         self.iou_prediction_head = MLP(
             transformer_dim, iou_head_hidden_dim, self.num_mask_tokens, iou_head_depth
         )
@@ -239,7 +343,7 @@ class BayescapDecoder(nn.Module):
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
         """
-        masks, masks_alpha, masks_beta, iou_pred, attns = self.predict_masks(
+        masks, iou_pred, attns = self.predict_masks(
             image_embeddings=image_embeddings,
             image_pe=image_pe,
             sparse_prompt_embeddings=sparse_prompt_embeddings,
@@ -249,12 +353,12 @@ class BayescapDecoder(nn.Module):
         # Select the correct mask or masks for output
         mask_slice = slice(0, self.num_multimask_outputs)
         masks = masks[:, mask_slice, :, :]
-        masks_alpha = masks_alpha[:, mask_slice, :, :]
-        masks_beta = masks_beta[:, mask_slice, :, :]
         iou_pred = iou_pred[:, mask_slice]
 
+        mask_mu, mask_alpha, mask_beta = self.bayescap(masks)
+
         # Prepare output
-        return masks, masks_alpha, masks_beta, iou_pred, attns
+        return masks, mask_mu, mask_alpha, mask_beta, iou_pred, attns
 
     def predict_masks(
         self,
@@ -287,29 +391,17 @@ class BayescapDecoder(nn.Module):
         src = src.transpose(1, 2).view(b, c, h, w)
         upscaled_embedding = self.output_upscaling(src)
         hyper_in_list: List[torch.Tensor] = []
-        hyper_in_list_a: List[torch.Tensor] = []
-        hyper_in_list_b: List[torch.Tensor] = []
         for i in range(self.num_mask_tokens):
             hyper_in_list.append(self.output_hypernetworks_mlps[i](mask_tokens_out[:, i, :]))
         hyper_in = torch.stack(hyper_in_list, dim=1)
-
-        for i in range(self.num_mask_tokens):
-            hyper_in_list_a.append(self.alpha_hypernetworks_mlps[i](mask_tokens_out[:, i, :]))
-        hyper_in_a = torch.stack(hyper_in_list_a, dim=1)
-
-        for i in range(self.num_mask_tokens):
-            hyper_in_list_b.append(self.beta_hypernetworks_mlps[i](mask_tokens_out[:, i, :]))
-        hyper_in_b = torch.stack(hyper_in_list_b, dim=1)
         #print(hyper_in.shape)
         b, c, h, w = upscaled_embedding.shape
         #print(b, c, h, w)
         masks = (hyper_in @ upscaled_embedding.view(b, c, h * w)).view(b, -1, h, w)
-        masks_alpha = (F.relu(hyper_in_a @ upscaled_embedding.view(b, c, h * w))).view(b, -1, h, w)
-        masks_beta = (F.relu(hyper_in_b @ upscaled_embedding.view(b, c, h * w))).view(b, -1, h, w)
 
         # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)
-        return masks, masks_alpha, masks_beta, iou_pred, attns
+        return masks, iou_pred, attns
 
 # Lightly adapted from
 # https://github.com/facebookresearch/MaskFormer/blob/main/mask_former/modeling/transformer/transformer_predictor.py # noqa

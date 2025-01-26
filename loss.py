@@ -172,61 +172,56 @@ class RecLoss(nn.Module):
         return l
 
 class GenGaussLoss(nn.Module):
-	def __init__(
-		self, reduction='mean',
-		alpha_eps = 1e-4, beta_eps=1e-4,
-		resi_min = 1e-4, resi_max=1e3
-	) -> None:
-		super(GenGaussLoss, self).__init__()
-		self.reduction = reduction
-		self.alpha_eps = alpha_eps
-		self.beta_eps = beta_eps
-		self.resi_min = resi_min
-		self.resi_max = resi_max
+    def __init__(
+        self, reduction='mean',
+        alpha_eps = 1e-4, beta_eps=1e-4,
+        resi_min = 1e-4, resi_max=1e3
+    ) -> None:
+        super(GenGaussLoss, self).__init__()
+        self.reduction = reduction
+        self.alpha_eps = alpha_eps
+        self.beta_eps = beta_eps
+        self.resi_min = resi_min
+        self.resi_max = resi_max
 	
-	def forward(
-		self, 
-		pred: Tensor, one_over_alpha: Tensor, beta: Tensor, target: Tensor
-    ):
-		one_over_alpha1 = one_over_alpha + self.alpha_eps
-		beta1 = beta + self.beta_eps
-		# regularizer = torch.abs(pred)
-		# regularizer_alpha = torch.abs(one_over_alpha)
-		# regularizer_beta = torch.abs(beta)
-		mean = torch.sigmoid(pred)
-		# resi = torch.abs(mean - target)
-		resi = mean*target + (1-mean)*(1-target)
-		# breakpoint()
-		resi = (resi*one_over_alpha1*beta1).clamp(min=self.resi_min, max=self.resi_max)
-		# pred_var = (pred_a**2) * torch.lgamma(3 / pred_b).exp().clamp(min= 1e-4, max=1e3) / torch.lgamma(1 / pred_b).exp().clamp(min= 1e-4, max=1e3)
+    def forward(self, gtruth: Tensor, pred: Tensor, one_over_alpha: Tensor, beta: Tensor, target: Tensor):
+        one_over_alpha1 = one_over_alpha + self.alpha_eps
+        beta1 = beta + self.beta_eps
+        mean = torch.sigmoid(pred)
+        # resi = torch.abs(mean - target)
+        resi = mean*target + (1-mean)*(1-target)
+        # breakpoint()
+        resi = (resi*one_over_alpha1*beta1).clamp(min=self.resi_min, max=self.resi_max)
+        # pred_var = (pred_a**2) * torch.lgamma(3 / pred_b).exp().clamp(min= 1e-4, max=1e3) / torch.lgamma(1 / pred_b).exp().clamp(min= 1e-4, max=1e3)
 
-        
-		## check if resi has nans
-		if torch.sum(resi != resi) > 0:
-			print('resi has nans!!')
-			return None
-		log_one_over_alpha = torch.log(one_over_alpha1)
-		log_beta = torch.log(beta1)
-		lgamma_beta = torch.lgamma(torch.pow(beta1, -1))
-		
-		if torch.sum(log_one_over_alpha != log_one_over_alpha) > 0:
-			print('log_one_over_alpha has nan')
-		if torch.sum(lgamma_beta != lgamma_beta) > 0:
-			print('lgamma_beta has nan')
-		if torch.sum(log_beta != log_beta) > 0:
-			print('log_beta has nan')
-		
-		# l = regularizer + regularizer_alpha + regularizer_beta + resi - log_one_over_alpha + lgamma_beta - log_beta
-		l = resi - log_one_over_alpha + lgamma_beta - log_beta
-  
-		if self.reduction == 'mean':
-			l = l.mean()
-		elif self.reduction == 'sum':
-			l = l.sum()
-		else:
-			print('Reduction not supported')
-			return None
-		return l
+        ## check if resi has nans
+        if torch.sum(resi != resi) > 0:
+            print('resi has nans!!')
+            return None
+        log_one_over_alpha = torch.log(one_over_alpha1)
+        log_beta = torch.log(beta1)
+        lgamma_beta = torch.lgamma(torch.pow(beta1, -1))
+
+        if torch.sum(log_one_over_alpha != log_one_over_alpha) > 0:
+            print('log_one_over_alpha has nan')
+        if torch.sum(lgamma_beta != lgamma_beta) > 0:
+            print('lgamma_beta has nan')
+        if torch.sum(log_beta != log_beta) > 0:
+            print('log_beta has nan')
+        rec_loss = (torch.sigmoid(gtruth) - mean)**2
+        # l = regularizer + regularizer_alpha + regularizer_beta + resi - log_one_over_alpha + lgamma_beta - log_beta
+        l = resi - log_one_over_alpha + lgamma_beta - log_beta
+        print(rec_loss.mean())
+        print(l.mean() * 1e-5)
+        l = rec_loss + l * 1e-5
+        if self.reduction == 'mean':
+            l = l.mean()
+        elif self.reduction == 'sum':
+            l = l.sum()
+        else:
+            print('Reduction not supported')
+            return None
+        return l
 
 
 

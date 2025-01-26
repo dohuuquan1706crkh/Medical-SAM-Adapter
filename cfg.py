@@ -13,7 +13,7 @@ def parse_args():
     parser.add_argument('-type', type=str, default='map', help='condition type:ave,rand,rand_map')
     parser.add_argument('-vis', type=int, default=50, help='visualization')
     parser.add_argument('-reverse', type=bool, default=False, help='adversary reverse')
-    parser.add_argument('-pretrain', type=bool, default=False, help='adversary reverse')
+    parser.add_argument('-pretrain', type=str, default=None, help='pretrained model for bayescap')
     parser.add_argument('-val_freq',type=int,default=-1,help='interval between each validation')
     parser.add_argument('-val_mode',type=str,default='normal',help='Eval mode: normal, mc_dropout, deep_ensemble')
     parser.add_argument('-gpu', type=bool, default=False, help='use gpu or not')
