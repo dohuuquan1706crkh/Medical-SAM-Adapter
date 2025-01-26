@@ -18,6 +18,9 @@ from .segrap import SegRap
 from .stare import STARE
 from .toothfairy import ToothFairy
 from .wbc import WBC
+from .fgadr import FGADR
+from .idrid import IDRiD
+# from prostate import ProstateDataset
 
 
 def get_dataloader(args):
@@ -65,8 +68,8 @@ def get_dataloader(args):
 
     elif args.dataset == 'LIDC':
         '''LIDC data'''
-        # dataset = LIDC(data_path = args.data_path)
-        dataset = MyLIDC(args, data_path = args.data_path,transform = transform_train, transform_msk= transform_train_seg)
+        dataset = LIDC(data_path = args.data_path)
+        # dataset = MyLIDC(args, data_path = args.data_path,transform = transform_train, transform_msk= transform_train_seg)
 
         dataset_size = len(dataset)
         indices = list(range(dataset_size))
@@ -223,7 +226,35 @@ def get_dataloader(args):
         nice_train_loader = DataLoader(dataset, batch_size=args.b, sampler=train_sampler, num_workers=8, pin_memory=True)
         nice_test_loader = DataLoader(dataset, batch_size=args.b, sampler=test_sampler, num_workers=8, pin_memory=True)
         '''end'''
+    elif args.dataset in {'fgadr1', 'fgadr2', 'fgadr3', 'fgadr4'}:
+        '''fgadr data'''
+        # breakpoint()
+        FGADR_train_dataset = FGADR(args, args.data_path, transform = transform_train, transform_msk= transform_train_seg, mode = 'Training')
+        FGADR_test_dataset = FGADR(args, args.data_path, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
 
+        nice_train_loader = DataLoader(FGADR_train_dataset, batch_size=args.b, shuffle=True, num_workers=8, pin_memory=True)
+        nice_test_loader = DataLoader(FGADR_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)
+        '''end'''
+    elif args.dataset in {'idrid1', 'idrid2', 'idrid3', 'idrid4'}:
+        '''IDRiD data'''
+        # breakpoint()
+        IDRiD_train_dataset = IDRiD(args, args.data_path, transform = transform_train, transform_msk= transform_train_seg, mode = 'Training')
+        IDRiD_test_dataset = IDRiD(args, args.data_path, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
+
+        nice_train_loader = DataLoader(IDRiD_train_dataset, batch_size=args.b, shuffle=True, num_workers=8, pin_memory=True)
+        nice_test_loader = DataLoader(IDRiD_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)
+        '''end'''
+
+    elif args.dataset == "lits":
+        from .lits17 import LiTS17
+        dataset_lits = LiTS17(args.data_path, num_classes=1, image_size=args.image_size, transform=transform_train, transform_mask=transform_train_seg)
+        dataset_lits_size = len(dataset_lits)
+        dataset_lits_indices = list(range(dataset_lits_size))
+        split = int(np.floor(0.8 * dataset_lits_size))
+        sampler_train = SubsetRandomSampler(dataset_lits_indices[:split])
+        sampler_test = SubsetRandomSampler(dataset_lits_indices[split:])
+        nice_train_loader = DataLoader(dataset_lits, batch_size=args.b, sampler=sampler_train, num_workers=4, pin_memory=True)
+        nice_test_loader = DataLoader(dataset_lits, batch_size=args.b, sampler=sampler_test, num_workers=4, pin_memory=True)
     else:
         print("the dataset is not supported now!!!")
         

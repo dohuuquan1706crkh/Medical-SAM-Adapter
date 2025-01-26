@@ -8,6 +8,8 @@ import time
 from collections import OrderedDict
 from datetime import datetime
 
+import gc
+import wandb
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -66,12 +68,15 @@ metric_values = []
 
 def train_sam(args, net: nn.Module, optimizer, train_loader,
           epoch, writer, schedulers=None, vis = 50):
-    hard = 0
+    hard = 1
     epoch_loss = 0
     ind = 0
     # train mode
+    accumulated_loss = 0
     optimizer.zero_grad()
-
+    # lambda_u = 0.001
+    # lambda_u = epoch / 100
+    lambda_u = 1 / 100
     epoch_loss = 0
     GPUdevice = torch.device('cuda:' + str(args.gpu_device))
 
@@ -88,15 +93,24 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     loss_uncert1 = GenGaussLoss()
     loss_uncert2 = PCCLoss()
     NUM_ACCUMULATION_STEPS = 2
+    example_counter = 0
     if args.encoder == 'bayescap_decoder':
         print("use bayes_cap decoder")
+    if args.encoder == 'sure_decoder':
+        print("use sure decoder")
     with tqdm(total=len(train_loader), desc=f'Epoch {epoch}', unit='img') as pbar:
+        # breakpoint()
         for idx, pack in enumerate(train_loader):
             # torch.cuda.empty_cache()
             imgs = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             #print(imgs.shape)
             masks = pack['label'].to(dtype = torch.float32, device = GPUdevice)
-            
+            imgs = torchvision.transforms.Resize((args.image_size,args.image_size))(imgs)
+            masks = torchvision.transforms.Resize((args.out_size,args.out_size))(masks)
+            #print(masks.shape)
+            # for k,v in pack['image_meta_dict'].items():
+            #     print(k)
+            # breakpoint()
             if 'pt' not in pack:
                 imgs, pt, masks = generate_click_prompt(imgs, masks)
             else:
@@ -120,7 +134,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 imgs = torchvision.transforms.Resize((args.image_size,args.image_size))(imgs)
                 masks = torchvision.transforms.Resize((args.out_size,args.out_size))(masks)
             showp = pt
-
+            # breakpoint()
             mask_type = torch.float32
             ind += 1
             b_size,c,w,h = imgs.size()
@@ -137,7 +151,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
 
             '''init'''
             if hard:
-                true_mask_ave = (true_mask_ave > 0.5).float()
+                masks = (masks > 0.5).float()
                 #true_mask_ave = cons_tensor(true_mask_ave)
             # imgs = imgs.to(dtype = mask_type,device = GPUdevice)
 
@@ -236,6 +250,8 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 pred_mu = F.interpolate(pred_mu,size=(args.out_size,args.out_size)) 
                 pred_a = F.interpolate(pred_a,size=(args.out_size,args.out_size))
                 pred_b = F.interpolate(pred_b,size=(args.out_size,args.out_size))
+            elif args.encoder == 'sure_decoder':
+                pred_var = F.interpolate(pred_var,size=(args.out_size,args.out_size)) 
 
             if args.loss == "evidential":
                 loss = lossfunc(pred, masks, epoch)
@@ -254,10 +270,21 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 elif args.encoder == 'sure_decoder':
                     loss_u = loss_uncert2(pred, pred_var, masks)
                     # import IPython; IPython.embed(); exit(1)
-                    loss = loss + loss_u * 1e-3
+                    loss = loss + loss_u * lambda_u
 
                 pbar.set_postfix(**{'loss (batch)': loss.item()})
                 epoch_loss += loss.item()
+                accumulated_loss += loss.item()
+            
+            example_counter += args.b
+            
+                
+            if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)) or idx ==0:
+                if args.encoder in {'bayescap_decoder', "sure_decoder"}:
+                    wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS, "train/loss_u": loss_u}, step=example_counter)
+                else:
+                    wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS}, step=example_counter)                
+
 
             # nn.utils.clip_grad_value_(net.parameters(), 0.1)
             if args.mod == 'sam_adalora':
@@ -266,6 +293,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)):
                     optimizer.step()
                     optimizer.zero_grad()
+
                 rankallocator.update_and_mask(net, ind)
             else:
                 loss /= NUM_ACCUMULATION_STEPS
@@ -273,7 +301,8 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)):
                     optimizer.step()
                     optimizer.zero_grad()
-                
+                    wandb.log({"train/loss": loss.item()})                
+            
             '''vis images'''
             if vis:
                 if ind % vis == 0:
@@ -287,6 +316,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
 
     return loss
 
+@torch.no_grad()
 def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.val_mode):
     if val_mode == 'mc_dropout':
         net.eval()  # Ensure the model is in eval mode
@@ -294,15 +324,16 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
             if isinstance(module, torch.nn.Dropout):
                 print(f"Enabling dropout for {module}")
                 module.train()  # Enable dropout
-    
-    # net = net.to('cpu') # Move the model to the CPU
-
+    if args.encoder == 'bayescap_decoder':
+        loss_uncert = GenGaussLoss()
+    elif args.encoder == 'sure_decoder':
+        loss_uncert = PCCLoss()
     mask_type = torch.float32
     n_val = len(val_loader)  # the number of batch
     ave_res, mix_res = (0,0,0,0), (0,)*args.multimask_output*2
     rater_res = [(0,0,0,0) for _ in range(6)]
     tot = 0
-    hard = 0
+    hard = 1
     threshold = (0.1, 0.3, 0.5, 0.7, 0.9)
     if args.gpu:
         GPUdevice = torch.device('cuda', args.gpu_device)
@@ -314,7 +345,8 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
         lossfunc = DiceCELoss(sigmoid=True, squared_pred=True, reduction='mean')
     else:
         lossfunc = criterion_G
-
+    pred_var_ls_min = []
+    pred_var_ls_max = []
     pred_ls = []
     pred_ls_a = []
     pred_ls_b = []
@@ -325,8 +357,8 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
             # breakpoint()
             imgsw = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             masksw = pack['label'].to(dtype = torch.float32, device = GPUdevice)
-            # imgsw = pack['image'].to(dtype = torch.float32, device = 'cpu')
-            # masksw = pack['label'].to(dtype = torch.float32, device = 'cpu')
+            imgsw = torchvision.transforms.Resize((args.image_size,args.image_size))(imgsw)
+            masksw = torchvision.transforms.Resize((args.out_size,args.out_size))(masksw)
             # for k,v in pack['image_meta_dict'].items():
             #     print(k)
             if 'pt' not in pack or args.thd:
@@ -383,7 +415,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
 
                 '''init'''
                 if hard:
-                    true_mask_ave = (true_mask_ave > 0.5).float()
+                    masks = (masks > 0.5).float()
                     #true_mask_ave = cons_tensor(true_mask_ave)
                 imgs = imgs.to(dtype = mask_type,device = GPUdevice)
                 # imgs = imgs.to(dtype = mask_type,device = 'cpu')
@@ -552,12 +584,10 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                         # pred_var = (1 / pred_a**2) * torch.lgamma(3 / pred_b).exp() / torch.lgamma(1 / pred_b).exp()
                         pred_var = (one_over_pred_a**2) * torch.lgamma(3 / pred_b).exp().clamp(min= 1e-4, max=1e3) / torch.lgamma(1 / pred_b).exp().clamp(min= 1e-4, max=1e3)
                         # pred_var = (pred_a**2) * torch.lgamma(3 / pred_b) / torch.lgamma(1 / pred_b)
-                        pred_ls_a.append(pred_a)
-                        pred_ls_b.append(pred_b)
-                        pred_ls.append(pred)
-                        mask_ls.append(masks)
-                        pred_var_ls.append(pred_var)
-                        loss_uncert = GenGaussLoss()
+                        pred_ls_a.append(pred_a.cpu())
+                        pred_ls_b.append(pred_b.cpu())
+
+                        # loss_uncert = GenGaussLoss()
                         loss = loss_uncert(pred, pred_mu, pred_a, pred_b, masks)
                         # breakpoint()
                     elif args.encoder == 'sure_decoder':
@@ -567,141 +597,102 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                             sparse_prompt_embeddings=se, 
                             dense_prompt_embeddings=de, 
                             multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
-                        pred_ls.append(pred)
-                        mask_ls.append(masks)
-                        pred_var_ls.append(pred_var)
-                        loss_uncert = PCCLoss()
+                        # pred_ls.append(pred.cpu())
+                        # mask_ls.append(masks.cpu())
+                        # pred_var_ls.append(pred_var.cpu())
+                        pred = F.interpolate(pred, size=(args.out_size, args.out_size))
+                        pred_var = F.interpolate(pred_var, size=(args.out_size, args.out_size))
+                        # loss_uncert = PCCLoss()
                         loss = loss_uncert(pred, pred_var, masks)
                         
-                    if val_mode in ['mc_dropout', 'deep_ensemble', 'ttdac', 'ttdap']:
+                    if val_mode in ['mc_dropout', 'deep_ensemble', 'ttdac', 'ttdap', "SURE"]:
                         pred_var = F.interpolate(pred_var, size=(args.out_size, args.out_size))
-                        pred_ls.append(pred)
-                        mask_ls.append(masks)
-                        pred_var_ls.append(pred_var)
+                    if val_mode == "entropy":
+                        pred_var = -torch.sigmoid(pred)*torch.log(torch.sigmoid(pred) + 1e-8) - (1 - torch.sigmoid(pred)) * torch.log(1 - torch.sigmoid(pred) + 1e-8)
+                    pred_ls.append(pred.cpu())
+                    mask_ls.append(masks.cpu())
+                    pred_var_ls_min.append(pred_var.quantile(0.05).item())
+                    pred_var_ls_max.append(pred_var.quantile(0.95).item())
+                    pred_var_ls.append(pred_var.cpu())
                     # breakpoint()
                     tot += lossfunc(pred, masks).item()
-
-                    '''vis images'''
-                    if args.vis and ind % args.vis == 1:
-                        # compute entropy map
-                        #print("vis image")
-                        x = torch.sigmoid(pred)
-                        #x = x.view(pred.shape[0], pred.shape[1], pred.shape[2], pred.shape[3])
-                        #print(sigmoid.shape)
-                        x = -x*torch.log(x + 1e-8) - (1 - x) * torch.log(1 - x + 1e-8)
-                        x = (x - x.amin(dim=(-1, -2), keepdim=True)) / (x.amax(dim=(-1, -2), keepdim=True) - x.amin(dim=(-1, -2), keepdim=True))
-                        #print(entropy.shape)
-                        x_ = mae(torch.sigmoid(pred), masks)
-                        x_ = (x_ - x_.amin(dim=(-1, -2), keepdim=True)) / (x_.amax(dim=(-1, -2), keepdim=True) - x_.amin(dim=(-1, -2), keepdim=True))
-                        #print(x_.shape)
-                        namecat = 'Test'
-                        for na in name[:2]:
-                            img_name = na.split('/')[-1].split('.')[0]
-                            namecat = namecat + img_name + '+'
-                        vis_image(imgs, pred, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False, points=showp)
-                        if locals().get('pred_var') is not None:
-                            pred_var_normalize = (pred_var- pred_var.amin(dim=(-1, -2), keepdim=True)) / (pred_var.amax(dim=(-1, -2), keepdim=True) - pred_var.amin(dim=(-1, -2), keepdim=True))
-                            vis_image(imgs, pred_var_normalize, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '_var.jpg'), reverse=False, points=showp)
-                    # breakpoint()
-
                     temp = eval_seg(pred, masks, threshold)
+                    '''vis images'''
+                    # if args.vis and ind % args.vis == 0:
+                    if args.vis and ind % args.vis == 0 and temp[0] < 0.55:
+                        vis_image_val(args, imgs, pred, masks, pred_var, name, epoch, reverse=False, points=showp)
+                    # breakpoint()
                     mix_res = tuple([sum(a) for a in zip(mix_res, temp)])
                 
             pbar.update()
             # break
+    #####
+    
     if args.evl_chunk:
         n_val = n_val * (imgsw.size(-1) // evl_ch)
     # breakpoint()
-    if val_mode in ['mc_dropout', 'deep_ensemble', 'bayescap', 'ttdac', 'ttdap', "SURE"]:
+    
+    if val_mode in ['mc_dropout', 'deep_ensemble', 'bayescap', 'ttdac', 'ttdap', "SURE", "entropy"]:
         # breakpoint()
         # calculate correlation between predictions errors and uncertainty
         if val_mode == "bayescap":
             pred_ls_a = torch.cat(pred_ls_a, dim=0).float().squeeze(1)
-            pred_ls_b = torch.cat(pred_ls_b, dim=0).float().squeeze(1)
+            pred_ls_b = torch.cat(pred_ls_b, dim=0).float().squeeze(1)   
+        pred_var_min = np.array(pred_var_ls_min).mean()
+        pred_var_max = np.array(pred_var_ls_max).mean()
         pred_ls = torch.cat(pred_ls, dim=0).float().squeeze(1)
         pred_logit = pred_ls
         pred_sigmoid = torch.sigmoid(pred_ls)
         pred_ls = (pred_sigmoid > 0.5)
         mask_ls = torch.cat(mask_ls, dim=0).squeeze(1)
-        loss = (pred_ls != mask_ls).float().flatten(start_dim=1)
-        # pred_ls = torch.cat([1 - pred_ls, pred_ls], dim=1)
-        # mask_ls = torch.cat([1 - mask_ls, mask_ls], dim=1)
-        # lss = nn.CrossEntropyLoss(reduction="none")
-        # loss = lss(pred_ls, mask_ls) # consider this as the error
+        loss = (pred_ls != mask_ls).float()
+        pred_var_ls = torch.cat(pred_var_ls, dim=0).squeeze(1)
 
-        pred_var_ls = torch.cat(pred_var_ls, dim=0).squeeze(1).flatten(start_dim=1)
-        cov = (loss - loss.mean(axis=1, keepdims=True)) * (pred_var_ls - pred_var_ls.mean(axis=1, keepdims=True))
-        pearson_corr = cov.mean(axis=1) / (loss.std(axis=1, unbiased=False) * pred_var_ls.std(axis=1, unbiased=False) + 1e-8)
-        print(f"Average Pearson correlation: {pearson_corr.mean()}")
-        # breakpoint()
-        preds_prob = torch.where(pred_sigmoid > 0.5, pred_sigmoid, 1 - pred_sigmoid)
-        correct_predictions = (1 - loss).bool()
+        pearson_corr = calculate_pearson(loss, pred_var_ls)
+        print(f"Average Pearson correlation: {pearson_corr}")
+        loss = loss.flatten(start_dim=0)
+        pred_var_ls = pred_var_ls.flatten(start_dim=0)
+        uce = calculate_uce(loss, pred_var_ls, pred_var_min, pred_var_max)
+        print(f"UCE: {uce}")
+        # map = (loss>0.5)|(pred_sigmoid.flatten(start_dim=0)>0.5)
+        # loss_map = loss[map]
+        # pred_var_ls_map = pred_var_ls[map]  
+        # pearson_corr_map = calculate_pearson(loss_map, pred_var_ls_map)
+        # print(f"Average Pearson_correlation_map: {pearson_corr_map}")
+        # uce_map = calculate_uce(loss_map, pred_var_ls_map, pred_var_min, pred_var_max)      
+        # print(f"UCE_map: {uce_map}")
 
-        # Convert tensors to numpy arrays
-        confidence_scores = preds_prob.flatten().cpu().numpy()
-        correct_predictions = correct_predictions.flatten().cpu().numpy()
+        if args.plot_histogram:
 
-        # 1. Confidence Histogram
-        plt.figure(figsize=(10, 5))
-        plt.yscale("log")
-        plt.hist(confidence_scores, bins=40, range=(0.5 , 1), alpha=0.7, color='blue', edgecolor='black')
-        plt.title("Confidence Histogram")
-        plt.xlabel("Predicted Confidence")
-        plt.ylabel("Frequency")
-        os.path.join(args.path_helper['sample_path'], 'confidence_histogram+epoch+' +str(epoch) + '.jpg')
-        plt.savefig(os.path.join(args.path_helper['sample_path'], 'confidence_histogram+epoch+' +str(epoch) + '.jpg'))
-        plt.close()
-        
-        pred_logit = pred_logit.flatten().cpu().numpy()
-        # 2. Logit Histogram 
-        plt.figure(figsize=(10, 5))
-        plt.yscale("log")
-        plt.hist(pred_logit, bins=40, alpha=0.7, color='blue', edgecolor='black')
-        plt.title("Logit Histogram")
-        plt.xlabel("Predicted Logit")
-        plt.ylabel("Frequency")
-        os.path.join(args.path_helper['sample_path'], 'logit_histogram+epoch+' +str(epoch) + '.jpg')
-        plt.savefig(os.path.join(args.path_helper['sample_path'], 'logit_histogram+epoch+' +str(epoch) + '.jpg'))
-        plt.close() 
-        
-        pred_var_ls = pred_var_ls.flatten().cpu().numpy()
-        # 3. Var Histogram 
-        plt.figure(figsize=(10, 5))
-        plt.yscale("log")
-        plt.hist(pred_var_ls, bins=40, alpha=0.7, color='blue', edgecolor='black')
-        plt.title("Var Histogram")
-        plt.xlabel("Predicted Var")
-        plt.ylabel("Frequency")
-        os.path.join(args.path_helper['sample_path'], 'Var_histogram+epoch+' +str(epoch) + '.jpg')
-        plt.savefig(os.path.join(args.path_helper['sample_path'], 'Var_histogram+epoch+' +str(epoch) + '.jpg'))
-        plt.close() 
-        
-        if val_mode == "bayescap":
-            pred_ls_a = pred_ls_a.flatten().cpu().numpy()
-            # 4. alpha Histogram 
-            plt.figure(figsize=(10, 5))
-            plt.yscale("log")
-            plt.hist(pred_ls_a, bins=40, alpha=0.7, color='blue', edgecolor='black')
-            plt.title("alpha Histogram")
-            plt.xlabel("Predicted alpha")
-            plt.ylabel("Frequency")
-            os.path.join(args.path_helper['sample_path'], 'alpha_histogram+epoch+' +str(epoch) + '.jpg')
-            plt.savefig(os.path.join(args.path_helper['sample_path'], 'alpha_histogram+epoch+' +str(epoch) + '.jpg'))
-            plt.close() 
+            preds_prob = torch.where(pred_sigmoid > 0.5, pred_sigmoid, 1 - pred_sigmoid)
+            correct_predictions = (1 - loss).bool()
+
+            # Convert tensors to numpy arrays
+            confidence_scores = preds_prob.flatten().cpu().numpy()
+            correct_predictions = correct_predictions.flatten().cpu().numpy()
+
+            plot_confidence_histogram(confidence_scores, correct_predictions, epoch, args)
+            pred_logit = pred_logit.flatten().cpu().numpy()
+
+            plot_logit_histogram(pred_logit, epoch, args)
+            pred_var_ls = pred_var_ls.cpu().numpy()
             
-            pred_ls_b = pred_ls_b.flatten().cpu().numpy()
-            # 5. beta Histogram 
-            plt.figure(figsize=(10, 5))
-            plt.yscale("log")
-            plt.hist(pred_ls_a, bins=40, alpha=0.7, color='blue', edgecolor='black')
-            plt.title("beta Histogram")
-            plt.xlabel("Predicted beta")
-            plt.ylabel("Frequency")
-            os.path.join(args.path_helper['sample_path'], 'beta+epoch+' +str(epoch) + '.jpg')
-            plt.savefig(os.path.join(args.path_helper['sample_path'], 'beta_histogram+epoch+' +str(epoch) + '.jpg'))
-            plt.close() 
-        
-    return tot/ n_val , tuple([a/n_val for a in mix_res])
+            plot_var_histogram(pred_var_ls, epoch, args)
+            
+            if val_mode == "bayescap":
+                pred_ls_a = pred_ls_a.flatten().cpu().numpy()
+                plot_alpha_histogram(pred_ls_a, epoch, args)
+                pred_ls_b = pred_ls_b.flatten().cpu().numpy()
+                plot_beta_histogram(pred_ls_b, epoch, args)
+
+                del pred_ls_a, pred_ls_b
+                gc.collect()
+                torch.cuda.empty_cache()
+    
+    del pred_ls, mask_ls, pred_var_ls
+    gc.collect()
+    torch.cuda.empty_cache()
+    return tot/ n_val, pearson_corr, uce, tuple([a/n_val for a in mix_res])
 
 def transform_prompt(coord,label,h,w):
     coord = coord.transpose(0,1)
@@ -761,3 +752,154 @@ def get_rescaled_pts(batched_points: torch.Tensor, input_h: int, input_w: int):
             dim=-1,
         )
         
+def calculate_uce(error, uncertainties, min_uncertainty, max_uncertainty, num_bins=10, task_type='classification'):
+    """
+    Calculate the Uncertainty Calibration Error (UCE) for classification or regression tasks.
+    Args:
+        loss (torch.Tensor): Loss values associated with each prediction.
+        uncertainties (torch.Tensor): Uncertainty values associated with each prediction (0 to 1 for classification; unbounded for regression).
+        num_bins (int): Number of bins to divide the uncertainty range [0, 1].
+        task_type (str): 'classification' or 'regression', indicating the type of task.
+    Returns:
+        float: Calculated UCE value.
+    """
+    # Normalize uncertainties to [0, 1]
+    # min_uncertainty = uncertainties.min()
+    # max_uncertainty = uncertainties.max()
+    uncertainties = (uncertainties - min_uncertainty) / (max_uncertainty - min_uncertainty+1e-8)
+    uncertainties[uncertainties>1] = 1
+    uncertainties[uncertainties<0] = 0
+    uncertainties = torch.clamp(uncertainties, 0, 1)
+
+    bin_edges = torch.linspace(0, 1, num_bins + 1, device=uncertainties.device)
+    bin_indices = torch.bucketize(uncertainties, bin_edges, right=True) - 1
+    bin_indices = torch.clamp(bin_indices, 0, num_bins - 1)  # Ensure indices are within valid range
+    # Initialize variables for UCE computation
+    total_samples = uncertainties.size(0)
+    uce = 0.0
+    # Compute error and uncertainty per bin
+    for b in range(num_bins):
+        bin_mask = bin_indices == b
+        bin_count = bin_mask.sum().item()
+        if bin_count > 0:
+            # Mean error in the bin
+            bin_error = error[bin_mask].mean().item()
+            # Mean uncertainty in the bin
+            bin_uncertainty = uncertainties[bin_mask].mean().item()
+            uce_b = abs(bin_error - bin_uncertainty)
+            # print(f"Bin {b}: NumBin = {bin_count} ,Error = {bin_error}, Uncertainty = {bin_uncertainty}, uce_b = {uce_b}") 
+            # Update UCE
+            uce += (bin_count / (total_samples)) * uce_b
+    # print(f"UCE: {uce}")
+    # breakpoint()
+    return uce
+
+
+
+def plot_confidence_histogram(confidence_scores, correct_predictions, epoch, args):
+
+    # 1. Confidence Histogram
+    plt.figure(figsize=(10, 5))
+    plt.yscale("log")
+    plt.hist(confidence_scores, bins=40, range=(0.5 , 1), alpha=0.7, color='blue', edgecolor='black')
+    plt.title("Confidence Histogram")
+    plt.xlabel("Predicted Confidence")
+    plt.ylabel("Frequency")
+    os.path.join(args.path_helper['sample_path'], 'confidence_histogram+epoch+' +str(epoch) + '.jpg')
+    plt.savefig(os.path.join(args.path_helper['sample_path'], 'confidence_histogram+epoch+' +str(epoch) + '.jpg'))
+    plt.close()
+
+
+
+
+
+def plot_logit_histogram(pred_logit, epoch, args):
+    # 2. Logit Histogram 
+    plt.figure(figsize=(10, 5))
+    # plt.yscale("log")
+    plt.hist(pred_logit, bins=40, alpha=0.7, color='blue', edgecolor='black')
+    plt.title("Logit Histogram")
+    plt.xlabel("Predicted Logit")
+    plt.ylabel("Frequency")
+    os.path.join(args.path_helper['sample_path'], 'logit_histogram+epoch+' +str(epoch) + '.jpg')
+    plt.savefig(os.path.join(args.path_helper['sample_path'], 'logit_histogram+epoch+' +str(epoch) + '.jpg'))
+    plt.close() 
+
+
+def plot_var_histogram(pred_var_ls, epoch, args):            
+    # 3. Var Histogram 
+    plt.figure(figsize=(10, 5))
+    plt.yscale("log")
+    plt.hist(pred_var_ls, bins=40, alpha=0.7, color='blue', edgecolor='black')
+    plt.title("Var Histogram")
+    plt.xlabel("Predicted Var")
+    plt.ylabel("Frequency")
+    os.path.join(args.path_helper['sample_path'], 'Var_histogram+epoch+' +str(epoch) + '.jpg')
+    plt.savefig(os.path.join(args.path_helper['sample_path'], 'Var_histogram+epoch+' +str(epoch) + '.jpg'))
+    plt.close() 
+
+
+
+
+
+def plot_alpha_histogram(pred_ls_a, epoch, args):                
+    # 4. alpha Histogram 
+    plt.figure(figsize=(10, 5))
+    plt.yscale("log")
+    plt.hist(pred_ls_a, bins=40, alpha=0.7, color='blue', edgecolor='black')
+    plt.title("alpha Histogram")
+    plt.xlabel("Predicted alpha")
+    plt.ylabel("Frequency")
+    os.path.join(args.path_helper['sample_path'], 'alpha_histogram+epoch+' +str(epoch) + '.jpg')
+    plt.savefig(os.path.join(args.path_helper['sample_path'], 'alpha_histogram+epoch+' +str(epoch) + '.jpg'))
+    plt.close() 
+
+
+
+
+
+def plot_beta_histogram(pred_ls_b, epoch, args):
+    # 5. beta Histogram 
+    plt.figure(figsize=(10, 5))
+    plt.yscale("log")
+    plt.hist(pred_ls_b, bins=40, alpha=0.7, color='blue', edgecolor='black')
+    plt.title("beta Histogram")
+    plt.xlabel("Predicted beta")
+    plt.ylabel("Frequency")
+    os.path.join(args.path_helper['sample_path'], 'beta+epoch+' +str(epoch) + '.jpg')
+    plt.savefig(os.path.join(args.path_helper['sample_path'], 'beta_histogram+epoch+' +str(epoch) + '.jpg'))
+    plt.close() 
+    
+    
+def calculate_pearson(loss, pred_var_ls):
+    # breakpoint()
+    cov = (loss - loss.mean(axis=1, keepdims=True)) * (pred_var_ls - pred_var_ls.mean(axis=1, keepdims=True))
+    pearson_corr = cov.mean(axis=1) / (loss.std(axis=1, unbiased=False) * pred_var_ls.std(axis=1, unbiased=False) + 1e-8)
+    pearson_corr_mean = pearson_corr.mean()
+
+    
+    print(f"Average Pearson correlation per image: {pearson_corr_mean}")
+    loss.flatten(start_dim=0)
+    pred_var_ls.flatten(start_dim=0)        
+    cov = (loss - loss.mean(axis=0, keepdims=True)) * (pred_var_ls - pred_var_ls.mean(axis=0, keepdims=True))
+    pearson_corr = cov.mean(axis=0) / (loss.std(axis=0, unbiased=False) * pred_var_ls.std(axis=0, unbiased=False) + 1e-8)
+    pearson_corr_mean = pearson_corr.mean()
+    
+    # breakpoint()
+    return pearson_corr_mean
+
+def vis_image_val(args, imgs, pred, masks, pred_var, name, epoch, reverse=False, points=None):
+    # compute entropy map
+    x = torch.sigmoid(pred)
+    x = -x*torch.log(x + 1e-8) - (1 - x) * torch.log(1 - x + 1e-8)
+    x = (x - x.amin(dim=(-1, -2), keepdim=True)) / (x.amax(dim=(-1, -2), keepdim=True) - x.amin(dim=(-1, -2), keepdim=True))
+    x_ = mae(torch.sigmoid(pred), masks)
+    x_ = (x_ - x_.amin(dim=(-1, -2), keepdim=True)) / (x_.amax(dim=(-1, -2), keepdim=True) - x_.amin(dim=(-1, -2), keepdim=True))
+    namecat = 'Test'
+    for na in name[:2]:
+        img_name = na.split('/')[-1].split('.')[0]
+        namecat = namecat + img_name + '+'
+    pred_var_normalize = (pred_var- pred_var.amin(dim=(-1, -2), keepdim=True)) / (pred_var.amax(dim=(-1, -2), keepdim=True) - pred_var.amin(dim=(-1, -2), keepdim=True))
+    vis_image(imgs, pred, masks, x, x_, pred_var_normalize = pred_var_normalize, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False)
+    # vis_image(imgs, pred_var_normalize, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '_var.jpg'), reverse=False, points=showp)
+# breakpoint()
