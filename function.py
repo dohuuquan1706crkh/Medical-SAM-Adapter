@@ -74,7 +74,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     optimizer.zero_grad()
     # lambda_u = 0.001
     # lambda_u = epoch / 100
-    lambda_u = 1 / 100
+    lambda_u = 1 / 500
     epoch_loss = 0
     GPUdevice = torch.device('cuda:' + str(args.gpu_device))
 
@@ -90,7 +90,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     
     loss_uncert1 = GenGaussLoss()
     loss_uncert2 = PCCLoss()
-    NUM_ACCUMULATION_STEPS = 2
+    NUM_ACCUMULATION_STEPS = 4
     example_counter = 0
     if args.encoder == 'bayescap_decoder':
         print("use bayes_cap decoder")
@@ -103,8 +103,8 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
             imgs = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             #print(imgs.shape)
             masks = pack['label'].to(dtype = torch.float32, device = GPUdevice)
-            imgs = torchvision.transforms.Resize((args.image_size,args.image_size))(imgs)
-            masks = torchvision.transforms.Resize((args.out_size,args.out_size))(masks)
+            # imgs = torchvision.transforms.Resize((args.image_size,args.image_size))(imgs)
+            # masks = torchvision.transforms.Resize((args.out_size,args.out_size))(masks)
             #print(masks.shape)
             # for k,v in pack['image_meta_dict'].items():
             #     print(k)
@@ -146,20 +146,22 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
 
             '''init'''
             if hard:
-                masks = (masks > 0.5).float()
+                masks = (masks > 0).float()
                 #true_mask_ave = cons_tensor(true_mask_ave)
             # imgs = imgs.to(dtype = mask_type,device = GPUdevice)
 
             '''Train'''
-            if args.mod == 'sam_adapt':
+            if args.mod == 'sam_adapt' or args.mod == 'sam_adapt_dense':
                 if args.distributed != 'none':
                     for n, value in net.module.image_encoder.named_parameters():
+                        # print(n)
                         if "Adapter" not in n:
                             value.requires_grad = False
                         else:
                             value.requires_grad = True
                 else:
                     for n, value in net.image_encoder.named_parameters():
+                        # print(n)
                         if "Adapter" not in n:
                             value.requires_grad = False
                         else:
@@ -266,7 +268,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 pbar.set_postfix(**{'loss (batch)': loss.item()})
                 epoch_loss += loss.item()
                 accumulated_loss += loss.item()
-            
+            # breakpoint()
             example_counter += args.b
             
                 
@@ -347,6 +349,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
             masksw = pack['label'].to(dtype = torch.float32, device = GPUdevice)
             imgsw = torchvision.transforms.Resize((args.image_size,args.image_size))(imgsw)
             masksw = torchvision.transforms.Resize((args.out_size,args.out_size))(masksw)
+
             # for k,v in pack['image_meta_dict'].items():
             #     print(k)
             if 'pt' not in pack or args.thd:
@@ -400,10 +403,10 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
 
                 '''init'''
                 if hard:
-                    masks = (masks > 0.5).float()
+                    masks = (masks > 0).float()
                     #true_mask_ave = cons_tensor(true_mask_ave)
                 imgs = imgs.to(dtype = mask_type,device = GPUdevice)
-                
+                # breakpoint()
                 '''test'''
                 with torch.no_grad():
                     if val_mode != 'deep_ensemble':
@@ -602,7 +605,8 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                     temp = eval_seg(pred, masks, threshold)
                     '''vis images'''
                     # if args.vis and ind % args.vis == 0:
-                    if args.vis and ind % args.vis == 0 and temp[0] < 0.55:
+                    if args.vis and ind % args.vis == 0:
+                    # if args.vis and ind % args.vis == 0 and temp[0] < 0.55:
 
                         vis_image_val(args, imgs, pred, masks, pred_var, name, epoch, reverse=False, points=showp)
                     # breakpoint()
@@ -645,7 +649,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
         # print(f"Average Pearson_correlation_map: {pearson_corr_map}")
         # uce_map = calculate_uce(loss_map, pred_var_ls_map, pred_var_min, pred_var_max)      
         # print(f"UCE_map: {uce_map}")
-
+        # breakpoint()
         if args.plot_histogram:
 
             preds_prob = torch.where(pred_sigmoid > 0.5, pred_sigmoid, 1 - pred_sigmoid)
@@ -884,6 +888,7 @@ def vis_image_val(args, imgs, pred, masks, pred_var, name, epoch, reverse=False,
         img_name = na.split('/')[-1].split('.')[0]
         namecat = namecat + img_name + '+'
     pred_var_normalize = (pred_var- pred_var.amin(dim=(-1, -2), keepdim=True)) / (pred_var.amax(dim=(-1, -2), keepdim=True) - pred_var.amin(dim=(-1, -2), keepdim=True))
+    # breakpoint()
     vis_image(imgs, pred, masks, x, x_, pred_var_normalize = pred_var_normalize, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '.jpg'), reverse=False)
     # vis_image(imgs, pred_var_normalize, masks, x, x_, save_path=os.path.join(args.path_helper['sample_path'], namecat+'epoch+' +str(epoch) + '_var.jpg'), reverse=False, points=showp)
 # breakpoint()

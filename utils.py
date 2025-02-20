@@ -961,7 +961,7 @@ def vis_image(imgs, pred_masks, gt_masks, entropy = None, mae=None, pred_var_nor
     if torch.max(pred_masks) > 1 or torch.min(pred_masks) < 0:
         pred_masks = torch.sigmoid(pred_masks)
     # error_map = torch.abs(gt_masks - pred_masks)
-    
+    # breakpoint()
     
     if reverse == True:
         pred_masks = 1 - pred_masks

@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument('-b', type=int, default=2, help='batch size for dataloader')
     parser.add_argument('-s', type=bool, default=True, help='whether shuffle the dataset')
     parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
-    parser.add_argument('-lr', type=float, default=1e-4, help='initial learning rate')
+    parser.add_argument('-lr', type=float, default=3e-4, help='initial learning rate')
     parser.add_argument('-uinch', type=int, default=1, help='input channel of unet')
     parser.add_argument('-imp_lr', type=float, default=3e-4, help='implicit learning rate')
     parser.add_argument('-weights', type=str, default = 0, help='the weights file you want to test')

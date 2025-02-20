@@ -80,8 +80,18 @@ class ImageEncoderViT(nn.Module):
             block_class = AdapterBlock 
         elif args.mod == 'sam_lora':
             block_class = LoraBlock 
+        elif args.mod == 'sam_adapt_dense':
+            block_class = AdapterBlock 
+            self.Adapter_projector = nn.Sequential(
+            nn.Linear(3 * embed_dim, embed_dim),
+            nn.GELU(),
+            nn.Linear(embed_dim, embed_dim),
+            nn.GELU(),
+            )
         else:
             block_class = Block 
+        # if args.mod == 'sam_adapt_dense':
+        #     self.Adapter_projecter = MLP()
         # print(global_attn_indexes)
         for i in range(depth):
         
@@ -132,12 +142,26 @@ class ImageEncoderViT(nn.Module):
             ).permute(0, 2, 3, 1)
             x = x + new_abs_pos
         attn_maps = []
-        for blk in self.blocks:
-            x, attn_map = blk(x)
-            # print('encoder',attn_map.shape)
-            attn_maps.append(attn_map)
-        # print("end")
-        # breakpoint()
+        if self.args.mod == 'sam_adapt_dense':
+            x_concat = []
+            for blk in self.blocks:
+                x, attn_map = blk(x)
+                x_concat.append(x)
+                # print('encoder',attn_map.shape)
+                attn_maps.append(attn_map)
+            x_group = [x_concat[i:min((i+4,len(x_concat)))] for i in range(0,len(x_concat),4)]
+            x_group_sum = [sum(group) for group in x_group]
+            x_cat = torch.cat(x_group_sum, dim = 3)
+            x_proj = self.Adapter_projector(x_cat)
+            x = x + x_proj
+            # breakpoint()
+        else:
+            for blk in self.blocks:
+                x, attn_map = blk(x)
+                # print('encoder',attn_map.shape)
+                attn_maps.append(attn_map)
+                # print("end")
+                # breakpoint()
         x = self.neck(x.permute(0, 3, 1, 2))
 
         return x, attn_maps

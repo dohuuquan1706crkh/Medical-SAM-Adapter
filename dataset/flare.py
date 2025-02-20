@@ -7,13 +7,13 @@ from torch.utils.data import Dataset
 from .utils import *
 
 __all__ = [
-    "LiTS17"
+    "FLARE22"
 ]
 
 
-class LiTS17(Dataset):
+class FLARE22(Dataset):
     """
-    LiTS Dataset ver. 2017 for Organ segmentation (3D).
+    FLARE Dataset ver. 2016 for Organ segmentation (3D).
     Link:
     """
     def __init__(
@@ -21,7 +21,7 @@ class LiTS17(Dataset):
         path: str,
         prompt: str = "click",
         image_size: int = 1024,
-        num_classes: int = 3,
+        num_classes: int = 13,
         transform: Optional[Callable] = None,
         transform_mask: Optional[Callable] = None
     ) -> None:
@@ -56,15 +56,14 @@ class LiTS17(Dataset):
         Returns:
             (Dict): image, ground truth (mask), prompt data and related metadata.
         """
-        
         # read image and label (mask)
-        image = cv2.imread(f"{self.path_data}/images/{self.names[idx]}", cv2.IMREAD_COLOR)
+        image = cv2.imread(f"{self.path_data}/images_liver/{self.names[idx]}", cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        # name = self.names[idx][:-4]
-        label = cv2.imread(f"{self.path_data}/labels/{self.names[idx]}", cv2.IMREAD_GRAYSCALE)
+        label = cv2.imread(f"{self.path_data}/labels_l/{self.names[idx]}", cv2.IMREAD_GRAYSCALE)
         # resize the label's resolution as same as image's
-        # label = cv2.resize(label, (self.image_size, self.image_size))
-        # unique = np.unique(label)
+        label = cv2.resize(label, (self.image_size, self.image_size))
+        masks = []
+        unique = np.unique(label)
         # if len(unique) == 2:
         mask = np.expand_dims(label/255,0)
         # else:
@@ -93,8 +92,12 @@ class LiTS17(Dataset):
         #     torch.set_rng_state(state)
         # breakpoint()
         # print(type(image))
+        # breakpoint()
+        # print(image.shape, mask.shape)
         image = torch.from_numpy(image/255).float().permute(2, 0, 1)
         mask = torch.from_numpy(mask).float()
+        if mask.shape[0] != 1:
+            mask = mask.permute(2,0,1)
         # image = torch.flip(image,dims= [1,2])
         # mask = torch.flip(mask,dims= [1,2])
         

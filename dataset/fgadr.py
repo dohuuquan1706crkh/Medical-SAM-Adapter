@@ -98,7 +98,6 @@ class FGADR(Dataset):
         mask = Image.fromarray(mask)
         newsize = (self.img_size, self.img_size)
         mask = mask.resize(newsize)
-
         if self.prompt == 'click':
             point_label, pt = random_click(np.array(mask) / 255, point_label)
 

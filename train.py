@@ -55,7 +55,7 @@ def main():
     if args.pretrain:
         weights = torch.load(args.pretrain)
         net.load_state_dict(weights,strict=False)
-
+    # breakpoint()
     optimizer = optim.Adam(net.parameters(), lr=args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5) #learning rate decay
 
@@ -78,6 +78,7 @@ def main():
         print(f'=> loaded checkpoint {checkpoint_file} (epoch {start_epoch})')
 
     args.path_helper = set_log_dir('logs', args.exp_name)
+    # wandb.init(project="SAM_Adapt", name=args.path_helper['log_path'],mode='disabled')
     wandb.init(project="SAM_Adapt", name=args.path_helper['log_path'])
     logger = create_logger(args.path_helper['log_path'])
     logger.info(args)
@@ -144,29 +145,29 @@ def main():
         else:
             sd = net.state_dict()
         
+        if epoch % 5 == 0 or epoch == settings.EPOCH :
+            if edice > best_dice:
+                best_dice = edice
 
-        if edice > best_dice:
-            best_dice = edice
-
-            save_checkpoint({
-            'epoch': epoch + 1,
-            'model': args.net,
-            'state_dict': sd,
-            'optimizer': optimizer.state_dict(),
-            'best_tol': best_dice,
-            'path_helper': args.path_helper,
-        }, checkpoint_path, 
-        filename=checkpoint_name.format(net=args.net, epoch=epoch, type='best', seed=args.seed))
-        else:
-            save_checkpoint({
-            'epoch': epoch + 1,
-            'model': args.net,
-            'state_dict': sd,
-            'optimizer': optimizer.state_dict(),
-            'best_tol': best_dice,
-            'path_helper': args.path_helper,
-        }, checkpoint_path, 
-        filename=checkpoint_name.format(net=args.net, epoch=epoch, type='last', seed=args.seed))
+                save_checkpoint({
+                'epoch': epoch + 1,
+                'model': args.net,
+                'state_dict': sd,
+                'optimizer': optimizer.state_dict(),
+                'best_tol': best_dice,
+                'path_helper': args.path_helper,
+            }, checkpoint_path, 
+            filename=checkpoint_name.format(net=args.net, epoch=epoch, type='best', seed=args.seed))
+            else:
+                save_checkpoint({
+                'epoch': epoch + 1,
+                'model': args.net,
+                'state_dict': sd,
+                'optimizer': optimizer.state_dict(),
+                'best_tol': best_dice,
+                'path_helper': args.path_helper,
+            }, checkpoint_path, 
+            filename=checkpoint_name.format(net=args.net, epoch=epoch, type='last', seed=args.seed))
     writer.close()
     wandb.finish()
 

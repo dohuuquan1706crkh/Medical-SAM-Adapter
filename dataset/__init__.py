@@ -238,8 +238,8 @@ def get_dataloader(args):
     elif args.dataset in {'idrid1', 'idrid2', 'idrid3', 'idrid4'}:
         '''IDRiD data'''
         # breakpoint()
-        IDRiD_train_dataset = IDRiD(args, args.data_path, transform = transform_train, transform_msk= transform_train_seg, mode = 'Training')
-        IDRiD_test_dataset = IDRiD(args, args.data_path, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
+        IDRiD_train_dataset = IDRiD(args, args.data_path, mode = 'Training', transform = transform_train, transform_msk= transform_train_seg)
+        IDRiD_test_dataset = IDRiD(args, args.data_path, mode = 'Test', transform = transform_test, transform_msk= transform_test_seg)
 
         nice_train_loader = DataLoader(IDRiD_train_dataset, batch_size=args.b, shuffle=True, num_workers=8, pin_memory=True)
         nice_test_loader = DataLoader(IDRiD_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)
@@ -248,6 +248,16 @@ def get_dataloader(args):
     elif args.dataset == "lits":
         from .lits17 import LiTS17
         dataset_lits = LiTS17(args.data_path, num_classes=1, image_size=args.image_size, transform=transform_train, transform_mask=transform_train_seg)
+        dataset_lits_size = len(dataset_lits)
+        dataset_lits_indices = list(range(dataset_lits_size))
+        split = int(np.floor(0.8 * dataset_lits_size))
+        sampler_train = SubsetRandomSampler(dataset_lits_indices[:split])
+        sampler_test = SubsetRandomSampler(dataset_lits_indices[split:])
+        nice_train_loader = DataLoader(dataset_lits, batch_size=args.b, sampler=sampler_train, num_workers=4, pin_memory=True)
+        nice_test_loader = DataLoader(dataset_lits, batch_size=args.b, sampler=sampler_test, num_workers=4, pin_memory=True)
+    elif args.dataset == "flare":
+        from .flare import FLARE22
+        dataset_lits = FLARE22(args.data_path, num_classes=1, image_size=args.image_size, transform=transform_train, transform_mask=transform_train_seg)
         dataset_lits_size = len(dataset_lits)
         dataset_lits_indices = list(range(dataset_lits_size))
         split = int(np.floor(0.8 * dataset_lits_size))

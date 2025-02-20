@@ -5,8 +5,8 @@ from dataset.utils import *
 
 if __name__ == "__main__":
     path_data = Path("./data/FLARE22")
-    path_image = Path("./data/FLARE22/images")
-    path_label = Path("./data/FLARE22/labels")
+    path_image = Path("./data/FLARE22/images_liver")
+    path_label = Path("./data/FLARE22/labels_liver")
     path_image.mkdir(parents=True, exist_ok=True)
     path_label.mkdir(parents=True, exist_ok=True)
     #
@@ -18,8 +18,8 @@ if __name__ == "__main__":
         assert image.shape == label.shape
         print(f"CT Shape: {image.shape}, Label shape: {label.shape}")
         # only get liver mask
-        # label[label != 1] = 0
-        # label[label == 1] = 255
+        label[label != 1] = 0
+        label[label == 1] = 255
         # get number of CT scan
         # assert len(np.unique(label)) == 14
         # print(f"Unique values: {len(unique)}")
