@@ -4,7 +4,8 @@ import argparse
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-seed', type=int, default=42, help='seeding number')
-    parser.add_argument('-plot_histogram', type=bool, default=True, help='plot histogram')
+    parser.add_argument('-plot_histogram', type=int, default=0, help='plot histogram')
+    parser.add_argument('-val_dis_shift', type=int, default=0, help='validation on distribution shift')
     parser.add_argument('-net', type=str, default='sam', help='net type')
     parser.add_argument('-baseline', type=str, default='unet', help='baseline net type')
     parser.add_argument('-encoder', type=str, default='default', help='encoder type')
@@ -41,6 +42,7 @@ def parse_args():
     parser.add_argument('-sim_weights', type=str, default = 0, help='the weights sim')
     parser.add_argument('-distributed', default='none' ,type=str,help='multi GPU ids to use')
     parser.add_argument('-dataset', default='isic' ,type=str,help='dataset name')
+    parser.add_argument('-dataset_val', default='isic' ,type=str,help='dataset name for val')
     parser.add_argument('-sam_ckpt', default=None , help='sam checkpoint address')
     parser.add_argument('-thd', type=bool, default=False , help='3d or not')
     parser.add_argument('-chunk', type=int, default=None , help='crop volume depth')
@@ -52,6 +54,11 @@ def parse_args():
     parser.add_argument('-multimask_output', type=int, default=1 , help='the number of masks output for multi-class segmentation, set 2 for REFUGE dataset.')
     parser.add_argument(
     '-data_path',
+    type=str,
+    default='../data',
+    help='The path of segmentation data')
+    parser.add_argument(
+    '-data_path_val',
     type=str,
     default='../data',
     help='The path of segmentation data')

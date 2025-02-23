@@ -84,6 +84,8 @@ def main():
     logger.info(args)
 
     nice_train_loader, nice_test_loader = get_dataloader(args)
+    if args.val_dis_shift:
+        nice_test_shift_loader = get_dataloader_val(args)
 
     '''checkpoint path and tensorboard'''
     # iter_per_epoch = len(Glaucoma_training_loader)
@@ -140,6 +142,16 @@ def main():
         
             # wandb.log({'Total score': {tol}, 'IOU_CUP': {eiou_cup}, 'IOU_DISC': {eiou_disc}, 'DICE_CUP': {edice_cup}, 'DICE_DISC': {edice_disc}, 'DICE': {edice}, 'epoch': {epoch}})
         # breakpoint()
+        if args.val_dis_shift:
+            if args.dataset != 'REFUGE':
+                tol, corr, uce, (eiou, edice) = function.validation_sam(args, nice_test_shift_loader, epoch, net, writer)
+                # logger.info(f'Total score: {tol}, IOU: {eiou}, DICE: {edice} || @ epoch {epoch}.')
+                # wandb.log({'Total score': {tol}, 'IOU': {eiou}, 'DICE': {edice}, 'epoch': {epoch}})
+                wandb.log({'eval/loss_shift': tol, 'eval/IOU_shift': eiou.item(), 'eval/DICE_shift': edice, 'eval/corr_shift': corr, 'eval/uce_shift': uce})
+                
+            else:
+                tol, corr, uce, (eiou_cup, eiou_disc, edice_cup, edice_disc) = function.validation_sam(args, nice_test_shift_loader, epoch, net, writer)
+                edice = (edice_cup + edice_disc) / 2.0
         if args.distributed != 'none':
             sd = net.module.state_dict()
         else:
