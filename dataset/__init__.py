@@ -343,14 +343,14 @@ def get_dataloader_val(args):
     elif args.dataset_val in {'fgadr1', 'fgadr2', 'fgadr3', 'fgadr4'}:
         '''fgadr data'''
         # breakpoint()
-        FGADR_test_dataset = FGADR(args, args.data_path_val, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
+        FGADR_test_dataset = FGADR(args, args.dataset_val, args.data_path_val, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
 
         nice_test_loader = DataLoader(FGADR_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)
         '''end'''
     elif args.dataset_val in {'idrid1', 'idrid2', 'idrid3', 'idrid4'}:
         '''IDRiD data'''
         # breakpoint()
-        IDRiD_test_dataset = IDRiD(args, args.data_path_val, mode = 'Test', transform = transform_test, transform_msk= transform_test_seg)
+        IDRiD_test_dataset = IDRiD(args, args.dataset_val, args.data_path_val, mode = 'Test', transform = transform_test, transform_msk= transform_test_seg)
 
         nice_test_loader = DataLoader(IDRiD_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)
         '''end'''

@@ -13,9 +13,10 @@ from utils import generate_click_prompt, random_box, random_click
 
 
 class FGADR(Dataset):
-    def __init__(self, args, data_path , transform = None, transform_msk = None, mode = 'Training',prompt = 'click', plane = False):
+    def __init__(self, args, dataset, data_path , transform = None, transform_msk = None, mode = 'Training',prompt = 'click', plane = False):
 
         self.args = args
+        self.dataset = dataset
         self.data_path = os.path.join(data_path)
         self.mode = mode
         if self.mode == 'Training':
@@ -55,37 +56,37 @@ class FGADR(Dataset):
         if self.mode == 'Training':
             img_path = os.path.join(self.data_path, "train", name_img)
             # msk_path = os.path.join(self.data_path, "train_labels/Haemorrhages/", name_msk)
-            if self.args.dataset == 'fgadr1':
+            if self.dataset == 'fgadr1':
                 msk_path1 = os.path.join(self.data_path, "train_labels/Haemorrhages/", name_msk)
                 mask = np.array(Image.open(msk_path1).convert('L'))
                 
-            elif self.args.dataset == 'fgadr2':
+            elif self.dataset == 'fgadr2':
                 msk_path2 = os.path.join(self.data_path, "train_labels/Hard Exudates/", name_msk)
                 mask = np.array(Image.open(msk_path2).convert('L'))
                
-            elif self.args.dataset == 'fgadr3':
+            elif self.dataset == 'fgadr3':
                 msk_path3 = os.path.join(self.data_path, "train_labels/Microaneurysms/", name_msk)
                 mask = np.array(Image.open(msk_path3).convert('L'))
                 
-            elif self.args.dataset == 'fgadr4':
+            elif self.dataset == 'fgadr4':
                 msk_path4 = os.path.join(self.data_path, "train_labels/Soft Exudates/", name_msk)
                 mask = np.array(Image.open(msk_path4).convert('L'))
             
         else:
             img_path = os.path.join(self.data_path, "test", name_img)
             # msk_path = os.path.join(self.data_path, "test_labels/Haemorrhages/", name_msk)
-            if self.args.dataset == 'fgadr1':
+            if self.dataset == 'fgadr1':
                 msk_path1 = os.path.join(self.data_path, "test_labels/Haemorrhages/", name_msk)
                 mask = np.array(Image.open(msk_path1).convert('L'))
 
-            elif self.args.dataset == 'fgadr2':
+            elif self.dataset == 'fgadr2':
                 msk_path2 = os.path.join(self.data_path, "test_labels/Hard Exudates/", name_msk)
                 mask = np.array(Image.open(msk_path2).convert('L'))
 
-            elif self.args.dataset == 'fgadr3':
+            elif self.dataset == 'fgadr3':
                 msk_path3 = os.path.join(self.data_path, "test_labels/Microaneurysms/", name_msk)
                 mask = np.array(Image.open(msk_path3).convert('L'))
-            elif self.args.dataset == 'fgadr4':
+            elif self.dataset == 'fgadr4':
                 msk_path4 = os.path.join(self.data_path, "test_labels/Soft Exudates/", name_msk)
                 mask = np.array(Image.open(msk_path4).convert('L'))
             

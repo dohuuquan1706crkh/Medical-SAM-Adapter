@@ -14,9 +14,10 @@ from torchvision.utils import save_image
 
 
 class IDRiD(Dataset):
-    def __init__(self, args, data_path, mode , transform = None, transform_msk = None ,prompt = 'click', plane = False):
+    def __init__(self, args, dataset, data_path, mode , transform = None, transform_msk = None ,prompt = 'click', plane = False):
 
         self.args = args
+        self.dataset = dataset
         self.data_path = os.path.join(data_path)
         self.mode = mode
         if self.mode == 'Training':
@@ -56,40 +57,40 @@ class IDRiD(Dataset):
         if self.mode == 'Training':
             img_path = os.path.join(self.data_path, "train", name_img)
             # msk_path = os.path.join(self.data_path, "train_labels/Haemorrhages/", name_msk)
-            if self.args.dataset == 'idrid1':
+            if self.dataset == 'idrid1':
                 msk_path1 = os.path.join(self.data_path, "train_labels/Haemorrhages/", name_msk)
                 mask = np.array(Image.open(msk_path1).convert('L'))
                 # print(mask.max())
                 # print(mask.shape)
-            elif self.args.dataset == 'idrid2':
+            elif self.dataset == 'idrid2':
                 msk_path2 = os.path.join(self.data_path, "train_labels/Hard Exudates/", name_msk)
                 mask = np.array(Image.open(msk_path2).convert('L'))
                
-            elif self.args.dataset == 'idrid3':
+            elif self.dataset == 'idrid3':
                 msk_path3 = os.path.join(self.data_path, "train_labels/Microaneurysms/", name_msk)
                 mask = np.array(Image.open(msk_path3).convert('L'))
                 
-            elif self.args.dataset == 'idrid4':
+            elif self.dataset == 'idrid4':
                 msk_path4 = os.path.join(self.data_path, "train_labels/Soft Exudates/", name_msk)
                 mask = np.array(Image.open(msk_path4).convert('L'))
             
         else:
             img_path = os.path.join(self.data_path, "test", name_img)
             # msk_path = os.path.join(self.data_path, "test_labels/Haemorrhages/", name_msk)
-            if self.args.dataset == 'idrid1':
+            if self.dataset == 'idrid1':
                 msk_path1 = os.path.join(self.data_path, "test_labels/Haemorrhages/", name_msk)
                 mask = np.array(Image.open(msk_path1).convert('L'))
                 # print(mask.max(axis = 2).shape)
                 # print(ma)
 
-            elif self.args.dataset == 'idrid2':
+            elif self.dataset == 'idrid2':
                 msk_path2 = os.path.join(self.data_path, "test_labels/Hard Exudates/", name_msk)
                 mask = np.array(Image.open(msk_path2).convert('L'))
 
-            elif self.args.dataset == 'idrid3':
+            elif self.dataset == 'idrid3':
                 msk_path3 = os.path.join(self.data_path, "test_labels/Microaneurysms/", name_msk)
                 mask = np.array(Image.open(msk_path3).convert('L'))
-            elif self.args.dataset == 'idrid4':
+            elif self.dataset == 'idrid4':
                 msk_path4 = os.path.join(self.data_path, "test_labels/Soft Exudates/", name_msk)
                 mask = np.array(Image.open(msk_path4).convert('L'))
             
