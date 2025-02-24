@@ -100,7 +100,6 @@ class IDRiD(Dataset):
 
         if self.prompt == 'click':
             point_label, pt = random_click(np.array(mask) / 255, point_label)
-        mask.save("mask1.png")
         if self.transform:
             state = torch.get_rng_state()
             img = self.transform(img)
@@ -108,11 +107,8 @@ class IDRiD(Dataset):
 
 
             if self.transform_msk:
-                mask = self.transform_msk(mask)
-                
-            # if (inout == 0 and point_label == 1) or (inout == 1 and point_label == 0):
-            #     mask = 1 - mask
-        # print((mask.unique())) 
+                mask = self.transform_msk(mask).int()
+
 
         
         name_img = name_img.split('/')[-1].split(".jpg")[0]

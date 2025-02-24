@@ -92,12 +92,8 @@ class FGADR(Dataset):
             # msk_path = os.path.join(self.data_path, "test_labels/Hard Exudates/", name_msk)
             
         img = Image.open(img_path).convert('RGB')
-
-        # print(img.shape)
-        # mask = np.max(np.stack([mask1, mask2, mask3, mask4], axis=0), axis=0)
         mask = Image.fromarray(mask)
-        # newsize = (self.img_size, self.img_size)
-        # mask = mask.resize(newsize)
+
         if self.prompt == 'click':
             point_label, pt = random_click(np.array(mask) / 255, point_label)
 
@@ -109,9 +105,7 @@ class FGADR(Dataset):
 
             if self.transform_msk:
                 mask = self.transform_msk(mask).int()
-                
-            # if (inout == 0 and point_label == 1) or (inout == 1 and point_label == 0):
-            #     mask = 1 - mask
+    
         name_img = name_img.split('/')[-1].split(".jpg")[0]
         image_meta_dict = {'filename_or_obj':name_img}
         return {
