@@ -272,11 +272,11 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
             example_counter += args.b
             
                 
-            if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)) or idx ==0:
-                if args.encoder in {'bayescap_decoder', "sure_decoder"}:
-                    wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS, "train/loss_u": loss_u}, step=example_counter)
-                else:
-                    wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS}, step=example_counter)                
+            # if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)) or idx ==0:
+            #     if args.encoder in {'bayescap_decoder', "sure_decoder"}:
+            #         wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS, "train/loss_u": loss_u}, step=example_counter)
+            #     else:
+            #         wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS}, step=example_counter)                
 
 
             # nn.utils.clip_grad_value_(net.parameters(), 0.1)
@@ -284,6 +284,10 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 loss /= NUM_ACCUMULATION_STEPS
                 (loss+lora.compute_orth_regu(net, regu_weight=0.1)).backward()
                 if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)):
+                    if args.encoder in {'bayescap_decoder', "sure_decoder"}:
+                        wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS, "train/loss_u": loss_u}, step=example_counter)
+                    else:
+                        wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS}, step=example_counter) 
                     optimizer.step()
                     optimizer.zero_grad()
 
@@ -292,6 +296,10 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 loss /= NUM_ACCUMULATION_STEPS
                 loss.backward()
                 if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)):
+                    if args.encoder in {'bayescap_decoder', "sure_decoder"}:
+                        wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS, "train/loss_u": loss_u}, step=example_counter)
+                    else:
+                        wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS}, step=example_counter) 
                     optimizer.step()
                     optimizer.zero_grad()
                     wandb.log({"train/loss": loss.item()})                
