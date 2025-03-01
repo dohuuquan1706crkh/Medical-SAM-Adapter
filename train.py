@@ -89,12 +89,12 @@ def main():
 
     '''checkpoint path and tensorboard'''
     # iter_per_epoch = len(Glaucoma_training_loader)
-    checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, settings.TIME_NOW)
+    checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, args.exp_name)
     #use tensorboard
     if not os.path.exists(settings.LOG_DIR):
         os.mkdir(settings.LOG_DIR)
     writer = SummaryWriter(log_dir=os.path.join(
-            settings.LOG_DIR, args.net, settings.TIME_NOW))
+            settings.LOG_DIR, args.net, args.exp_name))
     # input_tensor = torch.Tensor(args.b, 3, 256, 256).cuda(device = GPUdevice)
     # writer.add_graph(net, Variable(input_tensor, requires_grad=True))
 
@@ -157,29 +157,19 @@ def main():
         else:
             sd = net.state_dict()
         
-        if epoch % 5 == 0 or epoch == settings.EPOCH :
-            if edice > best_dice:
-                best_dice = edice
+        if edice > best_dice:
+            best_dice = edice
 
-                save_checkpoint({
-                'epoch': epoch + 1,
-                'model': args.net,
-                'state_dict': sd,
-                'optimizer': optimizer.state_dict(),
-                'best_tol': best_dice,
-                'path_helper': args.path_helper,
-            }, checkpoint_path, 
-            filename=checkpoint_name.format(net=args.net, epoch=epoch, type='best', seed=args.seed))
-            else:
-                save_checkpoint({
-                'epoch': epoch + 1,
-                'model': args.net,
-                'state_dict': sd,
-                'optimizer': optimizer.state_dict(),
-                'best_tol': best_dice,
-                'path_helper': args.path_helper,
-            }, checkpoint_path, 
-            filename=checkpoint_name.format(net=args.net, epoch=epoch, type='last', seed=args.seed))
+            save_checkpoint({
+            'epoch': epoch + 1,
+            'model': args.net,
+            'state_dict': sd,
+            'optimizer': optimizer.state_dict(),
+            'best_tol': best_dice,
+            'path_helper': args.path_helper,
+        }, checkpoint_path, 
+        filename=checkpoint_name.format(net=args.net, epoch=epoch, type='best', seed=args.seed))
+        
     writer.close()
     wandb.finish()
 

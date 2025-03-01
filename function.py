@@ -74,7 +74,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     optimizer.zero_grad()
     # lambda_u = 0.001
     # lambda_u = epoch / 100
-    lambda_u = 1 / 500
+    lambda_u = 1 / 1000
     epoch_loss = 0
     GPUdevice = torch.device('cuda:' + str(args.gpu_device))
 
@@ -90,7 +90,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     
     loss_uncert1 = GenGaussLoss()
     loss_uncert2 = PCCLoss()
-    NUM_ACCUMULATION_STEPS = 4
+    NUM_ACCUMULATION_STEPS = 8
     example_counter = 0
     if args.encoder == 'bayescap_decoder':
         print("use bayes_cap decoder")
@@ -201,7 +201,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                         sparse_prompt_embeddings=se, 
                         dense_prompt_embeddings=de, 
                         multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
-                elif args.encoder == 'sure_decoder':    
+                elif args.encoder == 'sure_decoder' or args.encoder == 'fft_decoder':    
                     pred, pred_var, _, _ = net.module.mask_decoder(
                         image_embeddings=imge, 
                         image_pe=net.module.prompt_encoder.get_dense_pe(), 
@@ -530,7 +530,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                                     sparse_prompt_embeddings=se, 
                                     dense_prompt_embeddings=de, 
                                     multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
-                            elif args.encoder == 'sure_decoder':    
+                            elif args.encoder == 'sure_decoder' or args.encoder == 'fft_decoder':    
                                 pred, pred_var, _, _ = net.module.mask_decoder(
                                     image_embeddings=imge, 
                                     image_pe=net.module.prompt_encoder.get_dense_pe(), 

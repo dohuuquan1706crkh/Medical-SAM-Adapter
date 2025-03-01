@@ -229,8 +229,8 @@ def get_dataloader(args):
     elif args.dataset in {'fgadr1', 'fgadr2', 'fgadr3', 'fgadr4'}:
         '''fgadr data'''
         # breakpoint()
-        FGADR_train_dataset = FGADR(args, args.data_path, transform = transform_train, transform_msk= transform_train_seg, mode = 'Training')
-        FGADR_test_dataset = FGADR(args, args.data_path, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
+        FGADR_train_dataset = FGADR(args, args.dataset, args.data_path, transform = transform_train, transform_msk= transform_train_seg, mode = 'Training')
+        FGADR_test_dataset = FGADR(args, args.dataset, args.data_path, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
 
         nice_train_loader = DataLoader(FGADR_train_dataset, batch_size=args.b, shuffle=True, num_workers=8, pin_memory=True)
         nice_test_loader = DataLoader(FGADR_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)
@@ -238,8 +238,8 @@ def get_dataloader(args):
     elif args.dataset in {'idrid1', 'idrid2', 'idrid3', 'idrid4'}:
         '''IDRiD data'''
         # breakpoint()
-        IDRiD_train_dataset = IDRiD(args, args.data_path, mode = 'Training', transform = transform_train, transform_msk= transform_train_seg)
-        IDRiD_test_dataset = IDRiD(args, args.data_path, mode = 'Test', transform = transform_test, transform_msk= transform_test_seg)
+        IDRiD_train_dataset = IDRiD(args, args.dataset, args.data_path, mode = 'Training', transform = transform_train, transform_msk= transform_train_seg)
+        IDRiD_test_dataset = IDRiD(args, args.dataset, args.data_path, mode = 'Test', transform = transform_test, transform_msk= transform_test_seg)
 
         nice_train_loader = DataLoader(IDRiD_train_dataset, batch_size=args.b, shuffle=True, num_workers=8, pin_memory=True)
         nice_test_loader = DataLoader(IDRiD_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)

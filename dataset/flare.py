@@ -98,8 +98,8 @@ class FLARE22(Dataset):
         mask = torch.from_numpy(mask).float()
         if mask.shape[0] != 1:
             mask = mask.permute(2,0,1)
-        # image = torch.flip(image,dims= [1,2])
-        # mask = torch.flip(mask,dims= [1,2])
+        image = torch.flip(image,dims= [1,2])
+        mask = torch.flip(mask,dims= [1,2])
         
         # print(image.shape, mask.shape)
         # image = image.permute(0,3,1,2)

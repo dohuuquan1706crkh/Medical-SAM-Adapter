@@ -95,7 +95,7 @@ class IDRiD(Dataset):
                 mask = np.array(Image.open(msk_path4).convert('L'))
             
             # msk_path = os.path.join(self.data_path, "test_labels/Hard Exudates/", name_msk)
-            
+        mask = (mask>0).astype(np.uint8)*255
         img = Image.open(img_path).convert('RGB')
         mask = Image.fromarray(mask)
 
