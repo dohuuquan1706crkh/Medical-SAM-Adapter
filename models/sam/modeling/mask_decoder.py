@@ -744,7 +744,7 @@ class FNOUncertainty(nn.Module):
         self.modes = modes
         self.linear = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.weight = nn.Parameter(torch.randn(in_channels, out_channels, self.modes, self.modes, dtype=torch.cfloat))
-        self.activation = nn.ReLU()
+        # self.activation = nn.ReLU()
 
     def forward(self, x):
         # FFT transform
@@ -762,7 +762,7 @@ class FNOUncertainty(nn.Module):
 
         # Linear projection and activation
         x_out = self.linear(x_out)
-        x_out = self.activation(x_out)
+        # x_out = self.activation(x_out)
         return x_out    
     
 

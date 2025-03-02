@@ -90,7 +90,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     
     loss_uncert1 = GenGaussLoss()
     loss_uncert2 = PCCLoss()
-    NUM_ACCUMULATION_STEPS = 2
+    NUM_ACCUMULATION_STEPS = 4
     example_counter = 0
     if args.encoder == 'bayescap_decoder':
         print("use bayes_cap decoder")
@@ -267,7 +267,6 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                     loss = loss + loss_u * 1e-3
                 elif args.encoder in ['sure_decoder', 'fft_decoder', 'fno_decoder']:
                     loss_u = loss_uncert2(pred, pred_var, masks)
-                    print("use correlation loss")
                     # import IPython; IPython.embed(); exit(1)
                     loss = loss + loss_u * lambda_u
 
