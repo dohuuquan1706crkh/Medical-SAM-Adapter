@@ -74,7 +74,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     optimizer.zero_grad()
     # lambda_u = 0.001
     # lambda_u = epoch / 100
-    lambda_u = 1 / 1000
+    lambda_u = 1 / 500
     epoch_loss = 0
     GPUdevice = torch.device('cuda:' + str(args.gpu_device))
 
@@ -90,12 +90,17 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     
     loss_uncert1 = GenGaussLoss()
     loss_uncert2 = PCCLoss()
-    NUM_ACCUMULATION_STEPS = 8
+    NUM_ACCUMULATION_STEPS = 2
     example_counter = 0
     if args.encoder == 'bayescap_decoder':
         print("use bayes_cap decoder")
     if args.encoder == 'sure_decoder':
         print("use sure decoder")
+    if args.encoder == 'fft_decoder':
+        print("use fft decoder")
+    if args.encoder == 'fno_decoder':
+        print("use fno decoder")
+    
     with tqdm(total=len(train_loader), desc=f'Epoch {epoch}', unit='img') as pbar:
         # breakpoint()
         for idx, pack in enumerate(train_loader):
@@ -201,7 +206,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                         sparse_prompt_embeddings=se, 
                         dense_prompt_embeddings=de, 
                         multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
-                elif args.encoder == 'sure_decoder' or args.encoder == 'fft_decoder':    
+                elif args.encoder in ['sure_decoder', 'fft_decoder', 'fno_decoder']:    
                     pred, pred_var, _, _ = net.module.mask_decoder(
                         image_embeddings=imge, 
                         image_pe=net.module.prompt_encoder.get_dense_pe(), 
@@ -243,7 +248,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
             if args.encoder == 'bayescap_decoder':
                 pred_a = F.interpolate(pred_a,size=(args.out_size,args.out_size))
                 pred_b = F.interpolate(pred_b,size=(args.out_size,args.out_size))
-            elif args.encoder == 'sure_decoder':
+            elif args.encoder in ['sure_decoder', 'fft_decoder', 'fno_decoder']:
                 pred_var = F.interpolate(pred_var,size=(args.out_size,args.out_size)) 
 
             if args.loss == "evidential":
@@ -260,8 +265,9 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                     loss_u = loss_uncert1(pred, pred_a, pred_b, masks)
                     # import IPython; IPython.embed(); exit(1)
                     loss = loss + loss_u * 1e-3
-                elif args.encoder == 'sure_decoder':
+                elif args.encoder in ['sure_decoder', 'fft_decoder', 'fno_decoder']:
                     loss_u = loss_uncert2(pred, pred_var, masks)
+                    print("use correlation loss")
                     # import IPython; IPython.embed(); exit(1)
                     loss = loss + loss_u * lambda_u
 
@@ -284,7 +290,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 loss /= NUM_ACCUMULATION_STEPS
                 (loss+lora.compute_orth_regu(net, regu_weight=0.1)).backward()
                 if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)):
-                    if args.encoder in {'bayescap_decoder', "sure_decoder"}:
+                    if args.encoder in {'bayescap_decoder', "sure_decoder", "fft_decoder", "fno_decoder"}:
                         wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS, "train/loss_u": loss_u}, step=example_counter)
                     else:
                         wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS}, step=example_counter) 
@@ -296,7 +302,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 loss /= NUM_ACCUMULATION_STEPS
                 loss.backward()
                 if ((idx + 1) % NUM_ACCUMULATION_STEPS == 0) or (idx + 1 == len(train_loader)):
-                    if args.encoder in {'bayescap_decoder', "sure_decoder"}:
+                    if args.encoder in {'bayescap_decoder', "sure_decoder", "fft_decoder", "fno_decoder"}:
                         wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS, "train/loss_u": loss_u}, step=example_counter)
                     else:
                         wandb.log({"train/loss": accumulated_loss/NUM_ACCUMULATION_STEPS}, step=example_counter) 
@@ -327,7 +333,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                 module.train()  # Enable dropout
     if args.encoder == 'bayescap_decoder':
         loss_uncert = GenGaussLoss()
-    elif args.encoder == 'sure_decoder':
+    elif args.encoder in ['sure_decoder', "fft_decoder", "fno_decoder"]:
         loss_uncert = PCCLoss()
     mask_type = torch.float32
     n_val = len(val_loader)  # the number of batch
@@ -530,7 +536,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                                     sparse_prompt_embeddings=se, 
                                     dense_prompt_embeddings=de, 
                                     multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
-                            elif args.encoder == 'sure_decoder' or args.encoder == 'fft_decoder':    
+                            elif args.encoder in ['sure_decoder', 'fft_decoder', 'fno_decoder']:    
                                 pred, pred_var, _, _ = net.module.mask_decoder(
                                     image_embeddings=imge, 
                                     image_pe=net.module.prompt_encoder.get_dense_pe(), 
@@ -584,7 +590,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                         # loss_uncert = GenGaussLoss()
                         loss = loss_uncert(pred, pred_a, pred_b, masks)
                         # breakpoint()
-                    elif args.encoder == 'sure_decoder':
+                    elif args.encoder in ['sure_decoder', "fft_decoder", "fno_decoder"]:
                         pred, pred_var, _, _ = net.module.mask_decoder(
                             image_embeddings=imge, 
                             image_pe=net.module.prompt_encoder.get_dense_pe(), 

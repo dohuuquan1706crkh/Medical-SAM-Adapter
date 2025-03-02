@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 
 from ..common import TwoWayTransformer
-from .modeling import ImageEncoderViT, MaskDecoder, PromptEncoder, Sam, BayescapDecoder, SUREDecoder, FFTDecoder
+from .modeling import ImageEncoderViT, MaskDecoder, PromptEncoder, Sam, BayescapDecoder, SUREDecoder, FFTDecoder, FNODecoder
 
 
 def build_sam_vit_h(args = None, checkpoint=None):
@@ -81,6 +81,16 @@ def build_sam_fft_decoder(args, checkpoint=None):
         checkpoint=checkpoint,
     )
 
+def build_sam_fno_decoder(args, checkpoint=None):
+    return _build_sam(
+        args,
+        encoder_embed_dim=768,
+        encoder_depth=12,
+        encoder_num_heads=12,
+        encoder_global_attn_indexes=[2, 5, 8, 11],
+        decoder=FNODecoder,
+        checkpoint=checkpoint,
+    )
 
 
 
@@ -92,6 +102,7 @@ sam_model_registry = {
     "bayescap_decoder": build_sam_bayescap_decoder,
     "sure_decoder": build_sam_sure_decoder,
     "fft_decoder": build_sam_fft_decoder,
+    "fno_decoder": build_sam_fno_decoder,
 }
 
 
