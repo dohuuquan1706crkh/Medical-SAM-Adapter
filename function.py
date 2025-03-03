@@ -639,8 +639,9 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
         if val_mode == "bayescap":
             pred_ls_a = torch.cat(pred_ls_a, dim=0).float().squeeze(1)
             pred_ls_b = torch.cat(pred_ls_b, dim=0).float().squeeze(1)   
-        pred_var_min = np.array(pred_var_ls_min).mean()
-        pred_var_max = np.array(pred_var_ls_max).mean()
+        # pred_var_min = np.array(pred_var_ls_min).mean()
+        # pred_var_max = np.array(pred_var_ls_max).mean()
+
         pred_ls = torch.cat(pred_ls, dim=0).float().squeeze(1)
         pred_logit = pred_ls
         pred_sigmoid = torch.sigmoid(pred_ls)
@@ -653,6 +654,8 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
         print(f"Average Pearson correlation: {pearson_corr}")
         loss = loss.flatten(start_dim=0)
         pred_var_ls = pred_var_ls.flatten(start_dim=0)
+        pred_var_min = pred_var_ls.min()
+        pred_var_max = pred_var_ls.max()
         uce = calculate_uce(loss, pred_var_ls, pred_var_min, pred_var_max)
         print(f"UCE: {uce}")
         # map = (loss>0.5)|(pred_sigmoid.flatten(start_dim=0)>0.5)
@@ -788,7 +791,7 @@ def calculate_uce(error, uncertainties, min_uncertainty, max_uncertainty, num_bi
             # Mean uncertainty in the bin
             bin_uncertainty = uncertainties[bin_mask].mean().item()
             uce_b = abs(bin_error - bin_uncertainty)
-            # print(f"Bin {b}: NumBin = {bin_count} ,Error = {bin_error}, Uncertainty = {bin_uncertainty}, uce_b = {uce_b}") 
+            # print(f"Bin {b}: NumBin = {bin_count} , NumBin/sample = {bin_count/total_samples} ,Error = {bin_error}, Uncertainty = {bin_uncertainty}, uce_b = {uce_b}, uce*weight = {(bin_count / (total_samples)) * uce_b}") 
             # Update UCE
             uce += (bin_count / (total_samples)) * uce_b
     # print(f"UCE: {uce}")
