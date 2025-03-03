@@ -1,6 +1,7 @@
 /checkpoint
 /logs
 /runs
+wandb
 pipline.sh
 figs/*
 data/*

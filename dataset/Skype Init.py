@@ -142,10 +142,11 @@ def get_dataloader(args):
 
         dataset_size = len(dataset)
         indices = list(range(dataset_size))
-        np.random.shuffle(indices)
-        split = int(np.floor(0.8 * dataset_size))
-        train_sampler = SubsetRandomSampler(indices[:split])
-        test_sampler = SubsetRandomSampler(indices[split:])
+        split = int(np.floor(0.2 * dataset_size))
+        # np.random.shuffle(indices)
+        train_sampler = SubsetRandomSampler(np.random.shuffle(indices[split:]))
+        # np.random.shuffle(train_sampler)
+        test_sampler = SubsetRandomSampler(indices[:split])
 
         nice_train_loader = DataLoader(dataset, batch_size=args.b, sampler=train_sampler, num_workers=8, pin_memory=True)
         nice_test_loader = DataLoader(dataset, batch_size=args.b, sampler=test_sampler, num_workers=8, pin_memory=True)
@@ -296,8 +297,8 @@ def get_dataloader(args):
     elif args.dataset in {'fgadr1', 'fgadr2', 'fgadr3', 'fgadr4'}:
         '''fgadr data'''
         # breakpoint()
-        FGADR_train_dataset = FGADR(args, args.dataset, args.data_path, transform = transform_train, transform_msk= transform_train_seg, mode = 'Training')
-        FGADR_test_dataset = FGADR(args, args.dataset, args.data_path, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
+        FGADR_train_dataset = FGADR(args, args.data_path, transform = transform_train, transform_msk= transform_train_seg, mode = 'Training')
+        FGADR_test_dataset = FGADR(args, args.data_path, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
 
         nice_train_loader = DataLoader(FGADR_train_dataset, batch_size=args.b, shuffle=True, num_workers=8, pin_memory=True)
         nice_test_loader = DataLoader(FGADR_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)
@@ -334,106 +335,7 @@ def get_dataloader(args):
         nice_test_loader = DataLoader(dataset_lits, batch_size=args.b, sampler=sampler_test, num_workers=4, pin_memory=True)
     else:
         print("the dataset is not supported now!!!")
-        
-    return nice_train_loader, nice_test_loader
-
-def get_dataloader_val(args):
-
-
-    transform_test = transforms.Compose([
-        transforms.Resize((args.image_size, args.image_size)),
-        transforms.ToTensor(),
-    ])
-
-    transform_test_seg = transforms.Compose([
-        transforms.Resize((args.out_size,args.out_size)),
-        transforms.ToTensor(),
-    ])
     
-    if args.dataset_val == 'isic':
-        '''isic data'''
-        isic_test_dataset = ISIC2016(args, args.data_path_val, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
-
-        nice_test_loader = DataLoader(isic_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)
-        '''end'''
-
-    elif args.dataset_val == 'REFUGE':
-        '''REFUGE data'''
-        refuge_test_dataset = REFUGE(args, args.data_path, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
-
-        nice_test_loader = DataLoader(refuge_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)
-        '''end'''
-
-    elif args.dataset_val == 'LIDC':
-        '''LIDC data'''
-        dataset = LIDC(data_path = args.data_path_val)
-        # dataset = MyLIDC(args, data_path = args.data_path,transform = transform_train, transform_msk= transform_train_seg)
-
-        dataset_size = len(dataset)
-        indices = list(range(dataset_size))
-        split = int(np.floor(0.2 * dataset_size))
-        np.random.shuffle(indices)
-        test_sampler = SubsetRandomSampler(indices[:split])
-
-        nice_test_loader = DataLoader(dataset, batch_size=args.b, sampler=test_sampler, num_workers=8, pin_memory=True)
-        '''end'''
-
-    elif args.dataset_val == 'DDTI':
-        '''DDTI data'''
-        refuge_test_dataset = DDTI(args, args.data_path_val, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
-
-        nice_test_loader = DataLoader(refuge_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)
-        '''end'''
-
-
-
-    elif args.dataset_val == 'STARE':
-        '''STARE data'''
-        # dataset = LIDC(data_path = args.data_path)
-        dataset = STARE(args, data_path = args.data_path_val, transform = transform_test, transform_msk= transform_test_seg)
-
-        dataset_size = len(dataset)
-        indices = list(range(dataset_size))
-        split = int(np.floor(0.2 * dataset_size))
-        np.random.shuffle(indices)
-        test_sampler = SubsetRandomSampler(indices[:split])
-
-        nice_test_loader = DataLoader(dataset, batch_size=args.b, sampler=test_sampler, num_workers=8, pin_memory=True)
-        '''end'''
-
-
-    elif args.dataset_val in {'fgadr1', 'fgadr2', 'fgadr3', 'fgadr4'}:
-        '''fgadr data'''
-        # breakpoint()
-        FGADR_test_dataset = FGADR(args, args.dataset_val, args.data_path_val, transform = transform_test, transform_msk= transform_test_seg, mode = 'Test')
-
-        nice_test_loader = DataLoader(FGADR_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)
-        '''end'''
-    elif args.dataset_val in {'idrid1', 'idrid2', 'idrid3', 'idrid4'}:
-        '''IDRiD data'''
-        # breakpoint()
-        IDRiD_test_dataset = IDRiD(args, args.dataset_val, args.data_path_val, mode = 'Test', transform = transform_test, transform_msk= transform_test_seg)
-
-        nice_test_loader = DataLoader(IDRiD_test_dataset, batch_size=args.b, shuffle=False, num_workers=8, pin_memory=True)
-        '''end'''
-
-    elif args.dataset_val == "lits":
-        from .lits17 import LiTS17
-        dataset_lits = LiTS17(args.data_path_val, num_classes=1, image_size=args.image_size, transform=transform_test, transform_mask=transform_test_seg)
-        dataset_lits_size = len(dataset_lits)
-        dataset_lits_indices = list(range(dataset_lits_size))
-        split = int(np.floor(0.8 * dataset_lits_size))
-        sampler_test = SubsetRandomSampler(dataset_lits_indices[split:])
-        nice_test_loader = DataLoader(dataset_lits, batch_size=args.b, sampler=sampler_test, num_workers=4, pin_memory=True)
-    elif args.dataset_val == "flare":
-        from .flare import FLARE22
-        dataset_lits = FLARE22(args.data_path_val, num_classes=1, image_size=args.image_size, transform=transform_test, transform_mask=transform_test_seg)
-        dataset_lits_size = len(dataset_lits)
-        dataset_lits_indices = list(range(dataset_lits_size))
-        split = int(np.floor(0.8 * dataset_lits_size))
-        sampler_test = SubsetRandomSampler(dataset_lits_indices[split:])
-        nice_test_loader = DataLoader(dataset_lits, batch_size=args.b, sampler=sampler_test, num_workers=4, pin_memory=True)
-    else:
-        print("the dataset is not supported now!!!")
-        
-    return nice_test_loader
+    if "_to_" in args.dataset:
+        return nice_train_loader, nice_test_loader, nice_test_loader_outDist
+    return nice_train_loader, nice_test_loader

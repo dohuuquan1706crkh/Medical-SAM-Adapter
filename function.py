@@ -63,8 +63,7 @@ global_step_best = 0
 epoch_loss_values = []
 metric_values = []
 
-def train_sam(args, net: nn.Module, optimizer, train_loader,
-          epoch, writer, schedulers=None, vis = 50):
+def train_sam(args, net: nn.Module, optimizer, train_loader, epoch, writer, schedulers=None, vis = 50):
     hard = 1
     epoch_loss = 0
     ind = 0
@@ -253,7 +252,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 # breakpoint()
 
                 epoch_loss += loss.item()
-            else: 
+            else:
                 loss = lossfunc(pred, masks)
                 # breakpoint()
                 if args.encoder == 'bayescap_decoder':
@@ -522,6 +521,22 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                             pred = preds.mean(dim=0)
                             preds = torch.sigmoid(preds)
                             pred_var = preds.var(dim=0)
+                        elif val_mode == 'urn':
+                            pred, _, decoder_attns = net.mask_decoder(
+                                image_embeddings=imge,
+                                image_pe=net.prompt_encoder.get_dense_pe(), 
+                                sparse_prompt_embeddings=se,
+                                dense_prompt_embeddings=de, 
+                                multimask_output=(args.multimask_output > 1),
+                            )
+                            pred = torch.sigmoid(pred)
+                            scales = [0.15,0.2,0.25,4,5,6]
+                            preds = []
+                            for scale in scales:
+                                pred_i = pred**scale
+                                preds.append(pred_i)
+                            preds = torch.stack(preds, dim=0)
+                            pred_var = preds.var(dim=0)
                         else:
                             if args.encoder == 'bayescap_decoder':
                                 pred, pred_a, pred_b, _, _ = net.module.mask_decoder(
@@ -599,7 +614,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
                         # loss_uncert = PCCLoss()
                         loss = loss_uncert(pred, pred_var, masks)
                         
-                    if val_mode in ['mc_dropout', 'deep_ensemble', 'ttdac', 'ttdap', "SURE"]:
+                    if val_mode in ['mc_dropout', 'deep_ensemble', 'ttdac', 'ttdap', "SURE", "urn"]:
                         pred_var = F.interpolate(pred_var, size=(args.out_size, args.out_size))
                     if val_mode == "entropy":
                         pred_var = -torch.sigmoid(pred)*torch.log(torch.sigmoid(pred) + 1e-8) - (1 - torch.sigmoid(pred)) * torch.log(1 - torch.sigmoid(pred) + 1e-8)
@@ -628,7 +643,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
         n_val = n_val * (imgsw.size(-1) // evl_ch)
     # breakpoint()
     
-    if val_mode in ['mc_dropout', 'deep_ensemble', 'bayescap', 'ttdac', 'ttdap', "SURE", "entropy"]:
+    if val_mode in ['mc_dropout', 'deep_ensemble', 'bayescap', 'ttdac', 'ttdap', "SURE", "entropy", "urn"]:
         # breakpoint()
         # calculate correlation between predictions errors and uncertainty
         if val_mode == "bayescap":

@@ -39,7 +39,7 @@ class LiTS17(Dataset):
         """
         super().__init__()
         self.path_data = path
-        self.names = [f.name for f in sorted(Path(path, "images").iterdir()) if f.is_file()]
+        self.names = [f.name for f in sorted(Path(path, "images_train").iterdir()) if f.is_file()]
         self.prompt = prompt
         self.image_size = image_size
         self.num_classes = num_classes
@@ -58,10 +58,10 @@ class LiTS17(Dataset):
         """
         
         # read image and label (mask)
-        image = cv2.imread(f"{self.path_data}/images/{self.names[idx]}", cv2.IMREAD_COLOR)
+        image = cv2.imread(f"{self.path_data}/images_train/{self.names[idx]}", cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         # name = self.names[idx][:-4]
-        label = cv2.imread(f"{self.path_data}/labels/{self.names[idx]}", cv2.IMREAD_GRAYSCALE)
+        label = cv2.imread(f"{self.path_data}/labels_train/{self.names[idx]}", cv2.IMREAD_GRAYSCALE)
         # resize the label's resolution as same as image's
         # label = cv2.resize(label, (self.image_size, self.image_size))
         # unique = np.unique(label)
