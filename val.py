@@ -32,10 +32,17 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader, random_split
 from utils import *
 import function
-
+def seed_everything(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    random.seed(seed)
 
 def main():
+
     args = cfg.parse_args()
+    seed_everything(args.seed)
     #if args.dataset == 'refuge' or args.dataset == 'refuge2':
     #    args.data_path = '../dataset'
 

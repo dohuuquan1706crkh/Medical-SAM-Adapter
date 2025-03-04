@@ -402,20 +402,6 @@ class SUREDecoder(nn.Module):
                 for i in range(self.num_mask_tokens)
             ]
         )
-        # self.output_hypernetworks_mlps = nn.ModuleList(
-        #     [
-        #         MLP(transformer_dim, transformer_dim, transformer_dim // 8, 3)
-        #         for i in range(self.num_mask_tokens)
-        #     ]
-        # )
-
-        # self.alpha_hypernetworks_mlps = nn.ModuleList(
-        #     [
-        #         MLP(transformer_dim, transformer_dim, transformer_dim // 8, 3)
-        #         for i in range(self.num_mask_tokens)
-        #     ]
-        # )
-
         self.iou_prediction_head = MLP(
             transformer_dim, iou_head_hidden_dim, self.num_mask_tokens, iou_head_depth
         )
@@ -504,7 +490,6 @@ class SUREDecoder(nn.Module):
         #print(b, c, h, w)
         masks = (hyper_in @ upscaled_embedding.view(b, c, h * w)).view(b, -1, h, w)
         masks_alpha = (F.relu(hyper_in_a @ upscaled_embedding.view(b, c, h * w))).view(b, -1, h, w)
-        # breakpoint()
         # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)
         return masks, masks_alpha, iou_pred, attns
@@ -554,7 +539,7 @@ class FFTDecoder(nn.Module):
             nn.ConvTranspose2d(transformer_dim // 4, transformer_dim // 8, kernel_size=2, stride=2),
             activation(),
         )
-        self.output_fft = FFT_block(iou_head_depth + 1)
+        # self.output_fft = FFT_block(iou_head_depth + 1)
 
         self.output_hypernetworks_mlps = nn.ModuleList(
             [
@@ -571,19 +556,6 @@ class FFTDecoder(nn.Module):
                 for i in range(self.num_mask_tokens)
             ]
         )
-        # self.output_hypernetworks_mlps = nn.ModuleList(
-        #     [
-        #         MLP(transformer_dim, transformer_dim, transformer_dim // 8, 3)
-        #         for i in range(self.num_mask_tokens)
-        #     ]
-        # )
-
-        # self.alpha_hypernetworks_mlps = nn.ModuleList(
-        #     [
-        #         MLP(transformer_dim, transformer_dim, transformer_dim // 8, 3)
-        #         for i in range(self.num_mask_tokens)
-        #     ]
-        # )
 
         self.iou_prediction_head = MLP(
             transformer_dim, iou_head_hidden_dim, self.num_mask_tokens, iou_head_depth
@@ -637,6 +609,7 @@ class FFTDecoder(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor, List]:
         """Predicts masks. See 'forward' for more details."""
         # Concatenate output tokens
+        # breakpoint()
         output_tokens = torch.cat([self.iou_token.weight, self.mask_tokens.weight], dim=0)
         output_tokens = output_tokens.unsqueeze(0).expand(sparse_prompt_embeddings.size(0), -1, -1)
         tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
@@ -672,22 +645,23 @@ class FFTDecoder(nn.Module):
 
         for i in range(self.num_mask_tokens):
             hyper_in_list.append(self.output_hypernetworks_mlps[i](mask_tokens_out[:, i, :]))
+            # breakpoint()
         hyper_in = torch.stack(hyper_in_list, dim=1)
 
         for i in range(self.num_mask_tokens):
             hyper_in_list_a.append(self.alpha_hypernetworks_mlps[i](mask_tokens_out[:, i, :]))
         hyper_in_a = torch.stack(hyper_in_list_a, dim=1)
         
-
+        # breakpoint()
 
         b, c, h, w = upscaled_embedding.shape
         #print(b, c, h, w)
         masks = (hyper_in @ upscaled_embedding.view(b, c, h * w)).view(b, -1, h, w)
         masks_alpha = ((hyper_in_a @ upscaled_embedding.view(b, c, h * w))).view(b, -1, h, w)
-        masks = self.output_fft(masks)
-        masks_alpha = self.alpha_fft(masks_alpha)
-        
-        # masks = 
+        # masks = self.output_fft(masks)
+        masks_alpha = (self.alpha_fft(masks_alpha))
+        # masks_alpha = F.relu(self.alpha_fft(masks_alpha))
+
         # breakpoint()
         # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)
@@ -697,15 +671,56 @@ class FFTDecoder(nn.Module):
 
 
 
+# class FFT_block(nn.Module):
+#     def __init__(self, channels):
+#         super(FFT_block, self).__init__()
+
+#         self.fpre = nn.Conv2d(channels, channels, 1, 1, 0)
+#         self.amp_fuse = nn.Sequential(nn.Conv2d(channels, channels, 3, 1, 1), nn.LeakyReLU(0.1, inplace=True),
+#                                       nn.Conv2d(channels, channels, 3, 1, 1))
+#         self.pha_fuse = nn.Sequential(nn.Conv2d(channels, channels, 3, 1, 1), nn.LeakyReLU(0.1, inplace=True),
+#                                       nn.Conv2d(channels, channels, 3, 1, 1))
+#         self.post = nn.Conv2d(channels, channels, 1, 1, 0)
+
+
+#     def forward(self, x):
+#         # print("x: ", x.shape)
+#         # breakpoint()
+#         _, _, H, W = x.shape
+#         msF = torch.fft.rfft2(self.fpre(x)+1e-8, norm='backward')
+
+#         msF_amp = torch.abs(msF)
+#         msF_pha = torch.angle(msF)
+#         # print("msf_amp: ", msF_amp.shape)
+#         amp_fuse = self.amp_fuse(msF_amp)
+#         # print(amp_fuse.shape, msF_amp.shape)
+#         amp_fuse = amp_fuse + msF_amp
+#         pha_fuse = self.pha_fuse(msF_pha)
+#         pha_fuse = pha_fuse + msF_pha
+
+#         real = amp_fuse * torch.cos(pha_fuse)+1e-8
+#         imag = amp_fuse * torch.sin(pha_fuse)+1e-8
+#         out = torch.complex(real, imag)+1e-8
+#         out = torch.abs(torch.fft.irfft2(out, s=(H, W), norm='backward'))
+#         out = self.post(out)
+#         out = out + x
+#         # breakpoint()
+#         out = torch.nan_to_num(out, nan=1e-5, posinf=1e-5, neginf=1e-5)
+#         # print("out: ", out.shape)
+#         return out
+    
+    
 class FFT_block(nn.Module):
     def __init__(self, channels):
         super(FFT_block, self).__init__()
 
-        self.fpre = nn.Conv2d(channels, channels, 1, 1, 0)
+        # self.fpre = nn.Conv2d(channels, channels, 1, 1, 0)
         self.amp_fuse = nn.Sequential(nn.Conv2d(channels, channels, 3, 1, 1), nn.LeakyReLU(0.1, inplace=True),
-                                      nn.Conv2d(channels, channels, 3, 1, 1))
+                                    #   nn.Conv2d(channels, channels, 3, 1, 1)
+                                      )
         self.pha_fuse = nn.Sequential(nn.Conv2d(channels, channels, 3, 1, 1), nn.LeakyReLU(0.1, inplace=True),
-                                      nn.Conv2d(channels, channels, 3, 1, 1))
+                                    #   nn.Conv2d(channels, channels, 3, 1, 1)
+                                      )
         self.post = nn.Conv2d(channels, channels, 1, 1, 0)
 
 
@@ -713,7 +728,8 @@ class FFT_block(nn.Module):
         # print("x: ", x.shape)
         # breakpoint()
         _, _, H, W = x.shape
-        msF = torch.fft.rfft2(self.fpre(x)+1e-8, norm='backward')
+        # msF = torch.fft.rfft2(self.fpre(x)+1e-8, norm='backward')
+        msF = torch.fft.rfft2(x, norm='backward')
 
         msF_amp = torch.abs(msF)
         msF_pha = torch.angle(msF)
@@ -728,14 +744,14 @@ class FFT_block(nn.Module):
         imag = amp_fuse * torch.sin(pha_fuse)+1e-8
         out = torch.complex(real, imag)+1e-8
         out = torch.abs(torch.fft.irfft2(out, s=(H, W), norm='backward'))
-        out = self.post(out)
-        out = out + x
         out = torch.nan_to_num(out, nan=1e-5, posinf=1e-5, neginf=1e-5)
+
+        # out = out + x
+        out = self.post(out)
+        # breakpoint()
         # print("out: ", out.shape)
         return out
-    
-    
-    
+        
     
 
 class FNOUncertainty(nn.Module):
@@ -765,6 +781,10 @@ class FNOUncertainty(nn.Module):
         # x_out = self.activation(x_out)
         return x_out    
     
+
+
+
+
 
 class FNODecoder(nn.Module):
     def __init__(
@@ -809,7 +829,7 @@ class FNODecoder(nn.Module):
             nn.ConvTranspose2d(transformer_dim // 4, transformer_dim // 8, kernel_size=2, stride=2),
             activation(),
         )
-        self.output_fft = FNOUncertainty(iou_head_depth + 1,iou_head_depth + 1)
+        # self.output_fft = FFT_block(iou_head_depth + 1)
 
         self.output_hypernetworks_mlps = nn.ModuleList(
             [
@@ -818,7 +838,7 @@ class FNODecoder(nn.Module):
                 
             ]
         )
-        self.alpha_fft = FNOUncertainty(iou_head_depth + 1,iou_head_depth + 1)
+        # self.alpha_fft = FFT_block(iou_head_depth + 1)
         
         self.alpha_hypernetworks_mlps = nn.ModuleList(
             [
@@ -826,20 +846,7 @@ class FNODecoder(nn.Module):
                 for i in range(self.num_mask_tokens)
             ]
         )
-        # self.output_hypernetworks_mlps = nn.ModuleList(
-        #     [
-        #         MLP(transformer_dim, transformer_dim, transformer_dim // 8, 3)
-        #         for i in range(self.num_mask_tokens)
-        #     ]
-        # )
-
-        # self.alpha_hypernetworks_mlps = nn.ModuleList(
-        #     [
-        #         MLP(transformer_dim, transformer_dim, transformer_dim // 8, 3)
-        #         for i in range(self.num_mask_tokens)
-        #     ]
-        # )
-
+        self.fft = FFT_block(iou_head_hidden_dim)
         self.iou_prediction_head = MLP(
             transformer_dim, iou_head_hidden_dim, self.num_mask_tokens, iou_head_depth
         )
@@ -912,6 +919,7 @@ class FNODecoder(nn.Module):
 
         # Upscale mask embeddings and predict masks using the mask tokens
         src = src.transpose(1, 2).view(b, c, h, w)
+        src = self.fft(src)
         upscaled_embedding = self.output_upscaling(src)
         hyper_in_list: List[torch.Tensor] = []
         hyper_in_list_a: List[torch.Tensor] = []
@@ -939,8 +947,9 @@ class FNODecoder(nn.Module):
         #print(b, c, h, w)
         masks = (hyper_in @ upscaled_embedding.view(b, c, h * w)).view(b, -1, h, w)
         masks_alpha = ((hyper_in_a @ upscaled_embedding.view(b, c, h * w))).view(b, -1, h, w)
-        masks = self.output_fft(masks)
-        masks_alpha = self.alpha_fft(masks_alpha)
+        # masks = self.output_fft(masks)
+        # masks_alpha = (self.alpha_fft(masks_alpha))
+        # masks_alpha = F.relu(self.alpha_fft(masks_alpha))
         
         # masks = 
         # breakpoint()
