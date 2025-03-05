@@ -147,6 +147,7 @@ class MaskDecoder(nn.Module):
 
         # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)
+        # breakpoint()
         return masks, iou_pred, attns
 
 class BayescapDecoder(nn.Module):
