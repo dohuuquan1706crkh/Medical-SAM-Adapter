@@ -108,8 +108,8 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
             imgs = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             #print(imgs.shape)
             masks = pack['label'].to(dtype = torch.float32, device = GPUdevice)
-            imgs = torchvision.transforms.Resize((args.image_size,args.image_size))(imgs)
-            masks = torchvision.transforms.Resize((args.out_size,args.out_size))(masks)
+            # imgs = torchvision.transforms.Resize((args.image_size,args.image_size))(imgs)
+            # masks = torchvision.transforms.Resize((args.out_size,args.out_size))(masks)
             #print(masks.shape)
             # for k,v in pack['image_meta_dict'].items():
             #     print(k)
