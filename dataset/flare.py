@@ -81,15 +81,15 @@ class FLARE22(Dataset):
         if self.prompt == "click":
             point_label, point_coord = random_click(mask[..., 0] / 255., point_labels=1)
         # transform the input
-        # if self.transform:
-        #     # save the current random number generate for reproducibility
-        #     state = torch.get_rng_state()
-        #     image = self.transform(image)
-        #     torch.set_rng_state(state)
-        # if self.transform_mask:
-        #     state = torch.get_rng_state()
-        #     mask = self.transform_mask(mask).int()
-        #     torch.set_rng_state(state)
+        if self.transform:
+            # save the current random number generate for reproducibility
+            state = torch.get_rng_state()
+            image = self.transform(image)
+            torch.set_rng_state(state)
+        if self.transform_mask:
+            state = torch.get_rng_state()
+            mask = self.transform_mask(mask).int()
+            torch.set_rng_state(state)
         # breakpoint()
         # print(type(image))
         # breakpoint()
