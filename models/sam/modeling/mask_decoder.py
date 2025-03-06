@@ -594,7 +594,7 @@ class FFTDecoder(nn.Module):
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
         """
-        masks, masks_alpha, iou_pred, attns = self.predict_masks(
+        masks, masks_alpha_sigmoid, iou_pred, attns = self.predict_masks(
             image_embeddings=image_embeddings,
             image_pe=image_pe,
             sparse_prompt_embeddings=sparse_prompt_embeddings,
@@ -604,11 +604,11 @@ class FFTDecoder(nn.Module):
         # Select the correct mask or masks for output
         mask_slice = slice(0, self.num_multimask_outputs)
         masks = masks[:, mask_slice, :, :]
-        masks_alpha = masks_alpha[:, mask_slice, :, :]
+        masks_alpha_sigmoid = masks_alpha_sigmoid[:, mask_slice, :, :]
         iou_pred = iou_pred[:, mask_slice]
 
         # Prepare output
-        return masks, masks_alpha, iou_pred, attns
+        return masks, masks_alpha_sigmoid, iou_pred, attns
 
     def predict_masks(
         self,
@@ -680,12 +680,18 @@ class FFTDecoder(nn.Module):
         masks_alpha = ((hyper_in_a @ upscaled_embedding.view(b, c, h * w))).view(b, -1, h, w)
         # masks = self.output_fft(masks)
         masks_alpha = self.alpha_fft(masks_alpha)
+        masks_alpha_sigmoid = masks_alpha.sigmoid()
+
+        #################
+        # masks_alpha_softmax = F.softmax(masks_alpha.view(b, 4, h*w), dim=2)
+        # masks_alpha_softmax = masks_alpha_softmax.view(b, 4, h, w)
+        #################
         # masks_alpha = F.relu(self.alpha_fft(masks_alpha))
 
         # breakpoint()
         # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)
-        return masks, masks_alpha, iou_pred, attns
+        return masks, masks_alpha_sigmoid, iou_pred, attns
 
 
 
