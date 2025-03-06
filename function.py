@@ -72,9 +72,9 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
     net.train()
     accumulated_loss = 0.0
     optimizer.zero_grad()
-    lambda_u = 0.001
+    # lambda_u = 0.001
     # lambda_u = epoch / 100
-    # lambda_u = 1 / 500
+    lambda_u = 1 / 500
     epoch_loss = 0
     GPUdevice = torch.device('cuda:' + str(args.gpu_device))
 
@@ -105,14 +105,11 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
         # breakpoint()
         for idx, pack in enumerate(train_loader):
             # torch.cuda.empty_cache()
+            
             imgs = pack['image'].to(dtype = torch.float32, device = GPUdevice)
             #print(imgs.shape)
             masks = pack['label'].to(dtype = torch.float32, device = GPUdevice)
-            # imgs = torchvision.transforms.Resize((args.image_size,args.image_size))(imgs)
-            # masks = torchvision.transforms.Resize((args.out_size,args.out_size))(masks)
-            #print(masks.shape)
-            # for k,v in pack['image_meta_dict'].items():
-            #     print(k)
+         
             # breakpoint()
             if 'pt' not in pack:
                 imgs, pt, masks = generate_click_prompt(imgs, masks)
@@ -181,9 +178,18 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                         init_warmup=500, final_warmup=1500, mask_interval=10, 
                         total_step=3000, beta1=0.85, beta2=0.85, 
                     )
+            elif args.mod == "frozen":
+                print("===============Use frozen.")
+                for n, value in net.image_encoder.named_parameters(): 
+                    value.requires_grad = False
             else:
                 for n, value in net.image_encoder.named_parameters(): 
                     value.requires_grad = True
+
+            def count_trainable_params(model):
+                return sum(p.numel() for p in model.parameters() if p.requires_grad)
+            print("=====Total params learnable:", count_trainable_params(net))
+
             if args.distributed != 'none':
                 imge, _ = net.module.image_encoder(imgs)   
             else:     
@@ -206,7 +212,9 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                         sparse_prompt_embeddings=se, 
                         dense_prompt_embeddings=de, 
                         multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
-                elif args.encoder in ['sure_decoder', 'fft_decoder', 'fno_decoder']:    
+                elif args.encoder in ['sure_decoder', 'fft_decoder', 'fno_decoder']: 
+                    # import pdb
+                    # pdb.set_trace()   
                     pred, pred_var, _, _ = net.module.mask_decoder(
                         image_embeddings=imge, 
                         image_pe=net.module.prompt_encoder.get_dense_pe(), 
@@ -220,6 +228,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                         sparse_prompt_embeddings=se, 
                         dense_prompt_embeddings=de, 
                         multimask_output=(args.multimask_output > 1)) if args.distributed != 'none' else net.mask_decoder(image_embeddings=imge, image_pe=net.prompt_encoder.get_dense_pe(), sparse_prompt_embeddings=se, dense_prompt_embeddings=de, multimask_output=(args.multimask_output > 1),) 
+                
             elif args.net == 'mobile_sam':
                 pred, _ = net.mask_decoder(
                     image_embeddings=imge,
@@ -249,7 +258,7 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
                 pred_b = F.interpolate(pred_b,size=(args.out_size,args.out_size))
             elif args.encoder in ['sure_decoder', 'fft_decoder', 'fno_decoder']:
                 pred_var = F.interpolate(pred_var,size=(args.out_size,args.out_size)) 
-
+                
             if args.loss == "evidential":
                 loss = lossfunc(pred, masks, epoch)
                 
@@ -258,17 +267,18 @@ def train_sam(args, net: nn.Module, optimizer, train_loader,
 
                 epoch_loss += loss.item()
             else: 
+                print("=======================:", pred.shape)
                 loss = lossfunc(pred, masks)
-                # print(masks.max())
                 # breakpoint()
                 if args.encoder == 'bayescap_decoder':
                     loss_u = loss_uncert1(pred, pred_a, pred_b, masks)
                     # import IPython; IPython.embed(); exit(1)
                     loss = loss + loss_u * 1e-3
                 elif args.encoder in ['sure_decoder', 'fft_decoder', 'fno_decoder']:
+                    
                     loss_u = loss_uncert2(pred, pred_var, masks)
                     # import IPython; IPython.embed(); exit(1)
-                    loss = loss + loss_u * lambda_u
+                    loss = loss + loss_u * lambda_u 
 
                 pbar.set_postfix(**{'loss (batch)': loss.item()})
                 epoch_loss += loss.item()
@@ -642,8 +652,8 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
         if val_mode == "bayescap":
             pred_ls_a = torch.cat(pred_ls_a, dim=0).float().squeeze(1)
             pred_ls_b = torch.cat(pred_ls_b, dim=0).float().squeeze(1)   
-        # pred_var_min = np.array(pred_var_ls_min).mean()
-        # pred_var_max = np.array(pred_var_ls_max).mean()
+        pred_var_min = 0 # np.array(pred_var_ls_min).mean()
+        pred_var_max = 1 # np.array(pred_var_ls_max).mean()
 
         pred_ls = torch.cat(pred_ls, dim=0).float().squeeze(1)
         pred_logit = pred_ls
@@ -657,8 +667,8 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
         # print(f"Average Pearson correlation: {pearson_corr}")
         loss = loss.flatten(start_dim=0)
         pred_var_ls = pred_var_ls.flatten(start_dim=0)
-        pred_var_min = pred_var_ls.min()
-        pred_var_max = pred_var_ls.max()
+        # pred_var_min = pred_var_ls.min()
+        # pred_var_max = pred_var_ls.max()
         uce = calculate_uce(loss, pred_var_ls, pred_var_min, pred_var_max)
         # print(f"UCE: {uce}")
         # map = (loss>0.5)|(pred_sigmoid.flatten(start_dim=0)>0.5)
@@ -700,6 +710,7 @@ def validation_sam(args, val_loader, epoch, net, clean_dir=True, val_mode=args.v
     gc.collect()
     torch.cuda.empty_cache()
     return tot/ n_val, pearson_corr, uce, tuple([a/n_val for a in mix_res])
+
 
 def transform_prompt(coord,label,h,w):
     coord = coord.transpose(0,1)
@@ -794,7 +805,7 @@ def calculate_uce(error, uncertainties, min_uncertainty, max_uncertainty, num_bi
             # Mean uncertainty in the bin
             bin_uncertainty = uncertainties[bin_mask].mean().item()
             uce_b = abs(bin_error - bin_uncertainty)
-            # print(f"Bin {b}: NumBin = {bin_count} , NumBin/sample = {bin_count/total_samples} ,Error = {bin_error}, Uncertainty = {bin_uncertainty}, uce_b = {uce_b}, uce*weight = {(bin_count / (total_samples)) * uce_b}") 
+            # print(f"Bin {b}: NumBin = {bin_count} ,Error = {bin_error}, Uncertainty = {bin_uncertainty}, uce_b = {uce_b}") 
             # Update UCE
             uce += (bin_count / (total_samples)) * uce_b
     # print(f"UCE: {uce}")
@@ -880,12 +891,12 @@ def plot_beta_histogram(pred_ls_b, epoch, args):
     
 def calculate_pearson(loss, pred_var_ls):
     # breakpoint()
-    # cov = (loss - loss.mean(axis=1, keepdims=True)) * (pred_var_ls - pred_var_ls.mean(axis=1, keepdims=True))
-    # pearson_corr = cov.mean(axis=1) / (loss.std(axis=1, unbiased=False) * pred_var_ls.std(axis=1, unbiased=False) + 1e-8)
-    # pearson_corr_mean = pearson_corr.mean()
+    cov = (loss - loss.mean(axis=1, keepdims=True)) * (pred_var_ls - pred_var_ls.mean(axis=1, keepdims=True))
+    pearson_corr = cov.mean(axis=1) / (loss.std(axis=1, unbiased=False) * pred_var_ls.std(axis=1, unbiased=False) + 1e-8)
+    pearson_corr_mean = pearson_corr.mean()
 
     
-    # print(f"Average Pearson correlation per image: {pearson_corr_mean}")
+    print(f"Average Pearson correlation per image: {pearson_corr_mean}")
     loss.flatten(start_dim=0)
     pred_var_ls.flatten(start_dim=0)        
     cov = (loss - loss.mean(axis=0, keepdims=True)) * (pred_var_ls - pred_var_ls.mean(axis=0, keepdims=True))
