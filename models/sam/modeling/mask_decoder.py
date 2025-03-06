@@ -550,7 +550,16 @@ class FFTDecoder(nn.Module):
             ]
         )
         self.alpha_fft = FFT_block(iou_head_depth + 1)
-        
+
+        # def zero_init(m):
+        #     if isinstance(m, (nn.Linear, nn.Conv2d)):  # Apply to linear & conv layers
+        #         nn.init.constant_(m.weight, 0)
+        #         if m.bias is not None:
+        #             nn.init.constant_(m.bias, 0)
+        self.up_fft = FFT_block(iou_head_hidden_dim//8)
+        # self.up_fft.apply(zero_init)
+        self.gate = nn.Parameter(torch.zeros(1))
+
         self.alpha_hypernetworks_mlps = nn.ModuleList(
             [
                 MLP(transformer_dim, transformer_dim, transformer_dim // 8, 3)
@@ -611,6 +620,8 @@ class FFTDecoder(nn.Module):
         """Predicts masks. See 'forward' for more details."""
         # Concatenate output tokens
         # breakpoint()
+        # import pdb
+        # pdb.set_trace() 
         output_tokens = torch.cat([self.iou_token.weight, self.mask_tokens.weight], dim=0)
         output_tokens = output_tokens.unsqueeze(0).expand(sparse_prompt_embeddings.size(0), -1, -1)
         tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
@@ -631,7 +642,15 @@ class FFTDecoder(nn.Module):
 
         # Upscale mask embeddings and predict masks using the mask tokens
         src = src.transpose(1, 2).view(b, c, h, w)
+
+    
         upscaled_embedding = self.output_upscaling(src)
+
+        #####################
+        print(self.gate)
+        upscaled_embedding = upscaled_embedding + self.gate.tanh()*self.up_fft(upscaled_embedding)
+        #####################
+
         hyper_in_list: List[torch.Tensor] = []
         hyper_in_list_a: List[torch.Tensor] = []
         # breakpoint()
@@ -660,7 +679,7 @@ class FFTDecoder(nn.Module):
         masks = (hyper_in @ upscaled_embedding.view(b, c, h * w)).view(b, -1, h, w)
         masks_alpha = ((hyper_in_a @ upscaled_embedding.view(b, c, h * w))).view(b, -1, h, w)
         # masks = self.output_fft(masks)
-        masks_alpha = (self.alpha_fft(masks_alpha))
+        masks_alpha = self.alpha_fft(masks_alpha)
         # masks_alpha = F.relu(self.alpha_fft(masks_alpha))
 
         # breakpoint()
