@@ -1192,6 +1192,69 @@ def random_click(mask, point_labels = 1):
     indices = np.argwhere(mask == max_label) 
     return point_labels, indices[np.random.randint(len(indices))]
 
+def two_round_prompt(pkl_file):
+    with open(pkl_file, "rb") as f:
+        data_dict = pickle.load(f)
+    num_point = 5
+
+    pred = data_dict["pred"].cpu()
+    err = data_dict["err"].cpu()
+    ucer = data_dict["ucer"].cpu()
+    
+    pred_pos_1 = pred > 0.90
+    err_pos_1 = ucer < 0.05
+    pos_1 = (pred_pos_1 & err_pos_1).int()
+
+    assert pos_1.shape[0] == 1
+    pos_1 = pos_1.squeeze(0)
+    coords_pos_1 = torch.nonzero(pos_1 == 1, as_tuple=False)
+    # print(pred_pos_1.shape)
+    values = pred.squeeze(0)[coords_pos_1[:, 0], coords_pos_1[:, 1]]
+    topk_values, topk_indices = torch.topk(values, k=2) 
+
+    # indices_pos_1 = torch.randperm(coords_pos_1.shape[0])[:num_point]  # Shuffle and take first n
+    selected_coords_pos_1 = coords_pos_1[topk_indices]
+    ##############
+    pred_pos_2 = pred < 0.01
+    err_pos_2 = ucer > 0.99
+    pos_2 = (pred_pos_2 & err_pos_2).int()
+
+    assert pos_2.shape[0] == 1
+    pos_2 = pos_2.squeeze(0)
+    coords_pos_2 = torch.nonzero(pos_2 == 1, as_tuple=False)
+
+    values = ucer.squeeze(0)[coords_pos_2[:, 0], coords_pos_2[:, 1]]
+    topk_values, topk_indices_2 = torch.topk(values, k=num_point)
+
+    # indices_pos_2 = torch.randperm(coords_pos_2.shape[0])[:num_point]  # Shuffle and take first n
+    selected_coords_pos_2 = coords_pos_2[topk_indices_2]
+
+    ##############
+    pred_neg = pred > 0.95
+    err_neg = ucer > 0.95
+    neg = (pred_neg & err_neg).int()
+
+    assert neg.shape[0] == 1
+    neg = neg.squeeze(0)
+    coords_neg = torch.nonzero(neg == 1, as_tuple=False)
+
+    values = ucer.squeeze(0)[coords_neg[:, 0], coords_neg[:, 1]]
+    topk_values, topk_indices_3 = torch.topk(values, k=num_point)
+
+    # indices_pos_2 = torch.randperm(coords_pos_2.shape[0])[:num_point]  # Shuffle and take first n
+    selected_coords_neg = coords_neg[topk_indices_3]
+
+    ####################3
+    selected_coords_pos = torch.cat((selected_coords_pos_1, selected_coords_pos_2), dim=0)
+    labels_pos = torch.ones(selected_coords_pos.shape[0], dtype=torch.int)
+
+    labels_neg = torch.zeros(selected_coords_neg.shape[0], dtype=torch.int)
+
+    selected_coords = torch.cat((selected_coords_pos, selected_coords_neg), dim=0)
+    labels = torch.cat((labels_pos, labels_neg), dim=0)
+    # assert len(labels_pos) >= 2*num_point
+
+    return labels, selected_coords
 
 def generate_click_prompt(img, msk, pt_label = 1):
     # return: prompt, prompt mask
